@@ -29,8 +29,17 @@ loki:
     filesystem:
       directory: /var/loki/chunks
 
-storage:
-  type: filesystem
+  # ✅ THÊM PHẦN NÀY - bắt buộc để fix lỗi bucketNames
+  storage:
+    bucketNames:
+      chunks: loki-chunks
+      ruler: loki-ruler
+      admin: loki-admin
+    type: filesystem
+
+# ❌ XÓA DÒNG NÀY (vì đã khai báo trong loki.storage ở trên)
+# storage:
+#   type: filesystem
 
 test:
   enabled: false

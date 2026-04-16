@@ -118,7 +118,9 @@ postgresql_username="$POSTGRESQL_USERNAME" yq -i '.grafana."grafana.ini".databas
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --create-namespace --namespace observability \
   -f ./observability/prometheus.values.yaml \
-  --set-string grafana."grafana\.ini".database.password="$POSTGRESQL_PASSWORD"
+  --set grafana.assertNoLeakedSecrets=false \
+  --set-string 'grafana.grafana\.ini.database.password'="$POSTGRESQL_PASSWORD"
+  
 
 # Install grafana operator
 helm upgrade --install grafana-operator oci://ghcr.io/grafana-operator/helm-charts/grafana-operator \
