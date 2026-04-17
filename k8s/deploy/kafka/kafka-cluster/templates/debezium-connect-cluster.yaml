@@ -8,6 +8,10 @@ spec:
   replicas: 1
   bootstrapServers: kafka-cluster-kafka-bootstrap:9092
   image: {{ .Values.debeziumConnect.image }}
+  logging:
+    type: inline
+    loggers:
+      connect.root.logger.level: INFO
   config:
     config.providers: secrets
     config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
