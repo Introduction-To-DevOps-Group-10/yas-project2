@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Cập nhật lại username Docker Hub của bạn
-        DOCKERHUB_USERNAME = 'your-dockerhub-username' 
+        DOCKERHUB_USERNAME = 'tunas106' 
         // ID Credentials bạn đã tạo ở Giai đoạn 2
         DOCKERHUB_CREDENTIALS = 'dockerhub-credentials' 
     }
