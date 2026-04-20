@@ -63,6 +63,7 @@ services:
     entrypoint: ["./wait-for-it.sh", "identity:80", "--timeout=300", "--", "java", "-jar", "/app.jar"]
     environment:
     - SPRING_PROFILES_ACTIVE=prod
+    - API_HOST=http://nginx
     - YAS_SERVICES_CUSTOMER
     - YAS_SERVICES_CART
     - YAS_SERVICES_RATING

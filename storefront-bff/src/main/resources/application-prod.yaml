@@ -7,7 +7,7 @@ spring:
             - SaveSession
           routes:
             - id: api
-              uri: http://nginx
+              uri: ${API_HOST:http://api.yas.local.com}
               predicates:
                 - Path=/api/**
               filters:

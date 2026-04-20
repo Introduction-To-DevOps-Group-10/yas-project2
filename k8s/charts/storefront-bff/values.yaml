@@ -18,6 +18,8 @@ backend:
   extraEnvs:
     - name: SPRING_PROFILES_ACTIVE
       value: prod
+    - name: API_HOST
+      value: http://api.yas.local.com
     - name: UI_HOST
       value: http://storefront-ui:3000
   extraEnvFroms:
