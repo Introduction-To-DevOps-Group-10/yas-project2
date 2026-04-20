@@ -32,6 +32,16 @@ spec:
   - host: storefront
     http:
       paths:
+      - path: /api
+        pathType: Prefix
+        annotations:
+          nginx.ingress.kubernetes.io/rewrite-target: /storefront/$2
+          nginx.ingress.kubernetes.io/use-regex: "true"
+        backend:
+          service:
+            name: storefront-bff
+            port:
+              number: 80
       - path: /
         pathType: Prefix
         backend:
