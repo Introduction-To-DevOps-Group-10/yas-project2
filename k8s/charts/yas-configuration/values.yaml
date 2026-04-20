@@ -70,6 +70,8 @@ applicationConfig:
         bootstrap-servers: kafka-cluster-kafka-brokers.kafka:9092
 
   springdoc:
+    api-docs:
+      version: OPENAPI_3_0
     oauthflow:
       authorization-url: http://identity.yas.local.com/realms/Yas/protocol/openid-connect/auth
       token-url: http://identity.yas.local.com/realms/Yas/protocol/openid-connect/token
