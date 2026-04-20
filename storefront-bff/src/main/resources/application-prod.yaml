@@ -7,6 +7,7 @@ spring:
             - SaveSession
           routes:
             - id: api
+              order: 1000
               uri: ${API_HOST:http://api.yas.local.com}
               predicates:
                 - Path=/api/**
@@ -15,6 +16,7 @@ spring:
                 - TokenRelay=
                 - StripPrefix=1
             - id: nextjs
+              order: 2000
               uri: ${UI_HOST:http://storefront-nextjs:3000}
               predicates:
                 - Path=/**
