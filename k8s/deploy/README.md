@@ -16,11 +16,10 @@
 ## Local installation steps
 - Require a minikube node minimum 16G memory and 40G disk space and run on Ubuntu operator
 ```shell
-minikube start --disk-size='40000mb' --memory='16g'
-```
-- Enable ingress addon
-```shell
+minikube start --disk-size='40000mb' --memory='18g' --kubernetes-version=v1.31.0
 minikube addons enable ingress
+```
+
 ```
 - Install helm
   https://helm.sh/
