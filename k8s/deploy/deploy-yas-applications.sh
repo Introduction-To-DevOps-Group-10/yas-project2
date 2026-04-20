@@ -54,7 +54,9 @@ for chart in {"cart","customer","inventory","location","media","order","payment"
     helm dependency build ../charts/"$chart"
     helm upgrade --install "$chart" ../charts/"$chart" \
     --namespace yas --create-namespace \
+    --set backend.ingress.enabled=true \
     --set backend.ingress.host="api.$DOMAIN" \
+    --set backend.ingress.path="/$chart" \
     "${SERVICE_MONITOR_ARGS[@]}"
     sleep 20
 done
