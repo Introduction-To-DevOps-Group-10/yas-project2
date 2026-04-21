@@ -50,6 +50,13 @@ case "$TARGET_SERVICE" in
     ;;
 esac
 
+case "$TARGET_SERVICE" in
+  search|payment-paypal)
+    echo "TARGET_SERVICE=$TARGET_SERVICE is disabled for Jenkins CD at the moment because it is not required for web deployment."
+    exit 0
+    ;;
+esac
+
 SERVICE_MONITOR_ARGS=()
 if [[ "$DISABLE_SERVICEMONITOR" == "true" ]]; then
   SERVICE_MONITOR_ARGS+=(--set backend.serviceMonitor.enabled=false)
@@ -177,7 +184,7 @@ deploy_swagger_chart "$(resolve_service_tag swagger-ui)" "$(resolve_target_flag 
 
 sleep 20
 
-for chart in cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata; do
+for chart in cart customer inventory location media order payment product promotion rating tax recommendation webhook sampledata; do
   ingress_host="api.$DOMAIN"
   ingress_path="/$chart"
   target_tag="$(resolve_service_tag "$chart")"

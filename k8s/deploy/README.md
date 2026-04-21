@@ -108,3 +108,5 @@ The job resolves the commit SHA of `TARGET_BRANCH`, then deploys:
 - all remaining services with `DEFAULT_IMAGE_TAG` if it is provided, otherwise their chart defaults
 
 The script also switches the selected service to `NodePort` and prints the test URL in the form `http://<host>:<nodePort>`.
+
+At the moment, `search` and `payment-paypal` are skipped in the Jenkins CD flow because they are not required for the developer web test path.
