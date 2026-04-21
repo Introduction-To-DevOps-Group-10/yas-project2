@@ -53,6 +53,7 @@ esac
 SERVICE_MONITOR_ARGS=()
 if [[ "$DISABLE_SERVICEMONITOR" == "true" ]]; then
   SERVICE_MONITOR_ARGS+=(--set backend.serviceMonitor.enabled=false)
+  SERVICE_MONITOR_ARGS+=(--set serviceMonitor.enabled=false)
 fi
 
 helm repo add stakater https://stakater.github.io/stakater-charts >/dev/null 2>&1 || true
