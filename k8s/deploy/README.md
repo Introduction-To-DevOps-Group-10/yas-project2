@@ -94,3 +94,17 @@ On the left menu select `Expore` -> select `Loki` datasource -> select Label fil
 - container (Application)
 
 On the Loki also support track by traceId, on The Tempo you can select the Node graph to view the tracing of request 
+
+## Developer CD flow
+The Jenkins `developer_build` job can call `deploy-developer-build.sh` to redeploy one service from a branch-specific image tag.
+
+Required inputs:
+- `TARGET_SERVICE`: the service/chart name, for example `tax`
+- `TARGET_BRANCH`: the branch to deploy, for example `dev_tax_service`
+- `DEFAULT_IMAGE_TAG`: optional. Set to `main` if the other services are published with a `main` image tag; leave empty to use each chart's default tag
+
+The job resolves the commit SHA of `TARGET_BRANCH`, then deploys:
+- the selected service with that SHA tag
+- all remaining services with `DEFAULT_IMAGE_TAG` if it is provided, otherwise their chart defaults
+
+The script also switches the selected service to `NodePort` and prints the test URL in the form `http://<host>:<nodePort>`.
