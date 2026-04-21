@@ -107,6 +107,8 @@ The job resolves the commit SHA of `TARGET_BRANCH`, then deploys:
 - the selected service with that SHA tag
 - all remaining services with `DEFAULT_IMAGE_TAG` if it is provided, otherwise their chart defaults
 
+The image tag is normalized to the first 7 characters of the commit SHA, because the Docker Hub images in this project are published with short commit tags.
+
 The script also switches the selected service to `NodePort` and prints the test URL in the form `http://<host>:<nodePort>`.
 
 At the moment, `search` and `payment-paypal` are skipped in the Jenkins CD flow because they are not required for the developer web test path.

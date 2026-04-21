@@ -13,6 +13,15 @@ DEFAULT_IMAGE_TAG="${DEFAULT_IMAGE_TAG:-}"
 DEV_HOST="${DEV_HOST:-}"
 DISABLE_SERVICEMONITOR="${DISABLE_SERVICEMONITOR:-true}"
 
+shorten_commit_tag() {
+  local value="$1"
+  if [[ "$value" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+    echo "${value:0:7}"
+  else
+    echo "$value"
+  fi
+}
+
 if [[ -z "$TARGET_SERVICE" ]]; then
   echo "TARGET_SERVICE is required."
   exit 1
@@ -36,6 +45,9 @@ if [[ -z "$TARGET_IMAGE_TAG" ]]; then
   echo "TARGET_IMAGE_TAG is required. Pass the commit SHA built by CI."
   exit 1
 fi
+
+TARGET_IMAGE_TAG="$(shorten_commit_tag "$TARGET_IMAGE_TAG")"
+DEFAULT_IMAGE_TAG="$(shorten_commit_tag "$DEFAULT_IMAGE_TAG")"
 
 if [[ -z "$DEV_HOST" ]]; then
   DEV_HOST="${TARGET_SERVICE}-dev.${DOMAIN}"
@@ -184,7 +196,7 @@ deploy_swagger_chart "$(resolve_service_tag swagger-ui)" "$(resolve_target_flag 
 
 sleep 20
 
-for chart in cart customer inventory location media order payment product promotion rating tax recommendation webhook sampledata; do
+for chart in tax cart customer inventory location media order payment product promotion rating recommendation webhook sampledata; do
   ingress_host="api.$DOMAIN"
   ingress_path="/$chart"
   target_tag="$(resolve_service_tag "$chart")"
