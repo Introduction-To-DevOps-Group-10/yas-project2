@@ -83,7 +83,7 @@ deploy_backend_chart() {
   helm dependency build "$chart_path"
   helm upgrade --install "$release" "$chart_path" \
     --namespace "$NAMESPACE" --create-namespace \
-    --wait --atomic \
+    # --wait --atomic \
     "${extra_args[@]}" \
     "${SERVICE_MONITOR_ARGS[@]}"
 }
@@ -107,7 +107,7 @@ deploy_ui_chart() {
   helm dependency build "$chart_path"
   helm upgrade --install "$release" "$chart_path" \
     --namespace "$NAMESPACE" --create-namespace \
-    --wait --atomic \
+    # --wait --atomic \
     "${extra_args[@]}"
 }
 
@@ -128,7 +128,7 @@ deploy_swagger_chart() {
   helm dependency build ../charts/swagger-ui
   helm upgrade --install swagger-ui ../charts/swagger-ui \
     --namespace "$NAMESPACE" --create-namespace \
-    --wait --atomic \
+    # --wait --atomic \
     "${extra_args[@]}"
 }
 
@@ -155,7 +155,7 @@ resolve_service_tag() {
 helm dependency build ../charts/yas-configuration
 helm upgrade --install yas-configuration ../charts/yas-configuration \
   --namespace "$NAMESPACE" --create-namespace \
-  --wait --atomic
+  # --wait --atomic
 
 deploy_backend_chart backoffice-bff ../charts/backoffice-bff "backoffice.$DOMAIN" "/" \
   "$(resolve_service_tag backoffice-bff)" "$(resolve_target_flag backoffice-bff)"
@@ -177,7 +177,7 @@ deploy_swagger_chart "$(resolve_service_tag swagger-ui)" "$(resolve_target_flag 
 
 sleep 20
 
-for chart in cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata; do
+for chart in cart customer inventory location media order payment product promotion rating tax recommendation webhook sampledata; do
   ingress_host="api.$DOMAIN"
   ingress_path="/$chart"
   target_tag="$(resolve_service_tag "$chart")"
