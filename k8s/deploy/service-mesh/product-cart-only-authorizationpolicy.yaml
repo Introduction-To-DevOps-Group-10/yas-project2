@@ -1,0 +1,19 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: product-cart-only
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: product
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/yas/sa/cart
+      to:
+        - operation:
+            ports:
+              - "80"

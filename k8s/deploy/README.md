@@ -81,6 +81,9 @@ All charts of Yas application situated in `charts` folder
 
 To Install the Yas helm charts access to [https://nashtech-garage.github.io/yas/](https://nashtech-garage.github.io/yas/)
 
+## Service mesh
+Istio + Kiali manifests and test instructions for the `yas` namespace are available in [service-mesh/README.md](./service-mesh/README.md).
+
 ## Observability
 The Yas observability follow by the standard of Open Telemetry recommendation.
 Promtail collect the log from all applications send to Open Telemetry Collector after that, Open Telemetry Collector distribute to Loki server.

@@ -6,6 +6,8 @@ backend:
   nameOverride: search
   fullnameOverride: search
   databaseName: search
+  podAnnotations:
+    sidecar.istio.io/inject: "false"
   ingress:
     enabled: false
   extraEnvFroms:

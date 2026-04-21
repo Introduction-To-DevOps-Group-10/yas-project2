@@ -6,6 +6,8 @@ backend:
   nameOverride: payment-paypal
   fullnameOverride: payment-paypal
   databaseName: payment-paypal
+  podAnnotations:
+    sidecar.istio.io/inject: "false"
   ingress:
     enabled: false
   extraVolumes:
