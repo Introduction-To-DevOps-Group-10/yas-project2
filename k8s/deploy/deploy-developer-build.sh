@@ -196,7 +196,7 @@ deploy_swagger_chart "$(resolve_service_tag swagger-ui)" "$(resolve_target_flag 
 
 sleep 20
 
-for chart in tax cart customer inventory location media order payment product promotion rating recommendation webhook sampledata; do
+for chart in cart customer inventory media order product promotion recommendation webhook sampledata; do
   ingress_host="api.$DOMAIN"
   ingress_path="/$chart"
   target_tag="$(resolve_service_tag "$chart")"
@@ -205,7 +205,7 @@ for chart in tax cart customer inventory location media order payment product pr
   deploy_backend_chart "$chart" "../charts/$chart" "$ingress_host" "$ingress_path" \
     "$target_tag" "$target_nodeport"
 
-  sleep 20
+  sleep 10
 done
 
 if [[ "$TARGET_SERVICE" == "swagger-ui" ]]; then
