@@ -9,7 +9,7 @@ pipeline {
   environment {
     DOCKERHUB_NAMESPACE = 'tunas106'
     DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
-    GITOPS_CREDENTIALS = 'github-gitops-credentials'
+    GITOPS_CREDENTIALS = 'github-token'
     GITOPS_REPO = 'github.com/TUNAS106/yas-gitops.git'
     GITOPS_BRANCH = 'main'
     GITOPS_FILE = 'argocd/applications/yas-dev.yaml'
