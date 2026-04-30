@@ -9,6 +9,7 @@ pipeline {
   environment {
     DOCKERHUB_NAMESPACE = 'tunas106'
     DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
+
     GITOPS_CREDENTIALS = 'github-token'
     GITOPS_REPO = 'github.com/TUNAS106/yas-gitops.git'
     GITOPS_BRANCH = 'main'
@@ -19,11 +20,16 @@ pipeline {
     stage('Checkout Source') {
       steps {
         checkout scm
+
+        sh 'git fetch --all --prune || true'
+
         script {
           env.SHORT_COMMIT = sh(
             script: 'git rev-parse --short=7 HEAD',
             returnStdout: true
           ).trim()
+
+          echo "Current dev image tag: ${env.SHORT_COMMIT}"
         }
       }
     }
@@ -31,13 +37,13 @@ pipeline {
     stage('Detect Changed Services') {
       steps {
         script {
-          def services = [
-            'cart'          : [dir: 'cart'],
-            'customer'      : [dir: 'customer'],
-            'product'       : [dir: 'product'],
-            'tax'           : [dir: 'tax'],
-            'storefront-bff': [dir: 'storefront-bff'],
-            'storefront-ui' : [dir: 'storefront']
+          def serviceConfig = [
+            'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart',           chart: 'charts/cart',           prefix: 'backend.image'],
+            'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer',       chart: 'charts/customer',       prefix: 'backend.image'],
+            'product'       : [dir: 'product',        type: 'java', image: 'yas-product',        chart: 'charts/product',        prefix: 'backend.image'],
+            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax',            chart: 'charts/tax',            prefix: 'backend.image'],
+            'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff', chart: 'charts/storefront-bff', prefix: 'backend.image'],
+            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront',     chart: 'charts/storefront-ui',  prefix: 'ui.image']
           ]
 
           def baseCommit = sh(
@@ -51,29 +57,54 @@ pipeline {
             returnStdout: true
           ).trim()
 
-          def changedFilesText = baseCommit
-            ? sh(script: "git diff --name-only ${baseCommit} HEAD", returnStdout: true).trim()
-            : sh(script: "git show --pretty='' --name-only HEAD", returnStdout: true).trim()
+          def changedFilesText = ''
+          if (baseCommit) {
+            changedFilesText = sh(
+              script: "git diff --name-only ${baseCommit} HEAD",
+              returnStdout: true
+            ).trim()
+          } else {
+            echo "No base commit found. Building all demo services for initial run."
+            changedFilesText = serviceConfig.collect { k, v -> "${v.dir}/" }.join('\n')
+          }
 
-          def changedFiles = changedFilesText ? changedFilesText.split('\\n') : []
+          def changedFiles = changedFilesText ? changedFilesText.split('\n') : []
           def changed = [] as Set
 
           changedFiles.each { file ->
-            services.each { name, cfg ->
+            serviceConfig.each { svc, cfg ->
               if (file == cfg.dir || file.startsWith("${cfg.dir}/")) {
-                changed.add(name)
+                changed.add(svc)
               }
             }
 
             if (file == 'pom.xml' || file.startsWith('common-library/')) {
-              ['cart', 'customer', 'product', 'tax', 'storefront-bff'].each { changed.add(it) }
+              ['cart', 'customer', 'product', 'tax', 'storefront-bff'].each {
+                changed.add(it)
+              }
             }
           }
 
           env.CHANGED_SERVICES = changed.join(',')
-          echo "Changed files: ${changedFiles.join(', ')}"
+
+          echo "Changed files:"
+          changedFiles.each { echo " - ${it}" }
+
           echo "Changed services: ${env.CHANGED_SERVICES ?: 'none'}"
         }
+      }
+    }
+
+    stage('Prepare Docker Buildx') {
+      when {
+        expression { env.CHANGED_SERVICES?.trim() }
+      }
+      steps {
+        sh '''
+          docker buildx inspect yas-builder >/dev/null 2>&1 || docker buildx create --name yas-builder --use
+          docker buildx use yas-builder
+          docker buildx inspect --bootstrap
+        '''
       }
     }
 
@@ -99,12 +130,12 @@ pipeline {
       steps {
         script {
           def serviceConfig = [
-            'cart'          : [dir: 'cart',          type: 'java', image: 'yas-cart'],
-            'customer'      : [dir: 'customer',      type: 'java', image: 'yas-customer'],
-            'product'       : [dir: 'product',       type: 'java', image: 'yas-product'],
-            'tax'           : [dir: 'tax',           type: 'java', image: 'yas-tax'],
-            'storefront-bff': [dir: 'storefront-bff',type: 'java', image: 'yas-storefront-bff'],
-            'storefront-ui' : [dir: 'storefront',    type: 'node', image: 'yas-storefront']
+            'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart'],
+            'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer'],
+            'product'       : [dir: 'product',        type: 'java', image: 'yas-product'],
+            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax'],
+            'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff'],
+            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront']
           ]
 
           env.CHANGED_SERVICES.split(',').each { svc ->
@@ -112,13 +143,18 @@ pipeline {
             def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
             def imageTag = env.SHORT_COMMIT
 
+            echo "Building ${svc} -> ${imageRepo}:${imageTag}"
+
             if (cfg.type == 'java') {
               sh "mvn -B clean package -pl ${cfg.dir} -am -DskipTests"
             }
 
             sh """
-              docker build -t ${imageRepo}:${imageTag} ./${cfg.dir}
-              docker push ${imageRepo}:${imageTag}
+              docker buildx build \
+                --platform linux/amd64 \
+                -t ${imageRepo}:${imageTag} \
+                --push \
+                ./${cfg.dir}
             """
           }
         }
@@ -145,7 +181,7 @@ pipeline {
       }
     }
 
-    stage('Update GitOps Dev Image Tags') {
+    stage('Update GitOps Dev Tags') {
       when {
         expression { env.CHANGED_SERVICES?.trim() }
       }
@@ -153,31 +189,39 @@ pipeline {
         dir('gitops-repo') {
           script {
             def gitopsConfig = [
-              'cart'          : [chart: 'charts/cart',          prefix: 'backend.image', image: 'yas-cart'],
-              'customer'      : [chart: 'charts/customer',      prefix: 'backend.image', image: 'yas-customer'],
-              'product'       : [chart: 'charts/product',       prefix: 'backend.image', image: 'yas-product'],
-              'tax'           : [chart: 'charts/tax',           prefix: 'backend.image', image: 'yas-tax'],
-              'storefront-bff': [chart: 'charts/storefront-bff',prefix: 'backend.image', image: 'yas-storefront-bff'],
-              'storefront-ui' : [chart: 'charts/storefront-ui', prefix: 'ui.image',      image: 'yas-storefront']
+              'cart'          : [chart: 'charts/cart',           prefix: 'backend.image', image: 'yas-cart'],
+              'customer'      : [chart: 'charts/customer',       prefix: 'backend.image', image: 'yas-customer'],
+              'product'       : [chart: 'charts/product',        prefix: 'backend.image', image: 'yas-product'],
+              'tax'           : [chart: 'charts/tax',            prefix: 'backend.image', image: 'yas-tax'],
+              'storefront-bff': [chart: 'charts/storefront-bff', prefix: 'backend.image', image: 'yas-storefront-bff'],
+              'storefront-ui' : [chart: 'charts/storefront-ui',  prefix: 'ui.image',      image: 'yas-storefront']
             ]
 
             env.CHANGED_SERVICES.split(',').each { svc ->
               def cfg = gitopsConfig[svc]
               def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
 
+              echo "Updating GitOps ${cfg.chart}: ${imageRepo}:${env.SHORT_COMMIT}"
+
               sh """
                 CHART_PATH='${cfg.chart}' \
                 IMAGE_PREFIX='${cfg.prefix}' \
                 IMAGE_REPO='${imageRepo}' \
                 IMAGE_TAG='${env.SHORT_COMMIT}' \
-                yq -i 'with(.spec.sources[] | select(.path == strenv(CHART_PATH)) | .helm.parameters;
-                  . = ((. // [])
-                    | map(select(.name != strenv(IMAGE_PREFIX) + ".repository" and .name != strenv(IMAGE_PREFIX) + ".tag"))
+                yq -i '
+                  (.spec.sources[] | select(.path == strenv(CHART_PATH)).helm.parameters) =
+                  (
+                    ((.spec.sources[] | select(.path == strenv(CHART_PATH)).helm.parameters) // [])
+                    | map(select(
+                        .name != strenv(IMAGE_PREFIX) + ".repository" and
+                        .name != strenv(IMAGE_PREFIX) + ".tag"
+                      ))
                     + [
                         {"name": strenv(IMAGE_PREFIX) + ".repository", "value": strenv(IMAGE_REPO)},
                         {"name": strenv(IMAGE_PREFIX) + ".tag", "value": strenv(IMAGE_TAG)}
-                      ])
-                )' ${env.GITOPS_FILE}
+                      ]
+                  )
+                ' ${env.GITOPS_FILE}
               """
             }
 
@@ -215,8 +259,13 @@ pipeline {
     always {
       sh 'docker logout || true'
     }
+
     success {
-      echo "Done. Services: ${env.CHANGED_SERVICES ?: 'none'}, tag: ${env.SHORT_COMMIT}"
+      echo "deploy_dev completed. Services: ${env.CHANGED_SERVICES ?: 'none'}, tag: ${env.SHORT_COMMIT}"
+    }
+
+    failure {
+      echo "deploy_dev failed. Check the failed stage above."
     }
   }
 }
