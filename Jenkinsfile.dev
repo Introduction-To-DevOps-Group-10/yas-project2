@@ -182,54 +182,38 @@ pipeline {
     }
 
     stage('Update GitOps Dev Tags') {
-      when {
-        expression { env.CHANGED_SERVICES?.trim() }
-      }
-      steps {
-        dir('gitops-repo') {
-          script {
-            def gitopsConfig = [
-              'cart'          : [chart: 'charts/cart',           prefix: 'backend.image', image: 'yas-cart'],
-              'customer'      : [chart: 'charts/customer',       prefix: 'backend.image', image: 'yas-customer'],
-              'product'       : [chart: 'charts/product',        prefix: 'backend.image', image: 'yas-product'],
-              'tax'           : [chart: 'charts/tax',            prefix: 'backend.image', image: 'yas-tax'],
-              'storefront-bff': [chart: 'charts/storefront-bff', prefix: 'backend.image', image: 'yas-storefront-bff'],
-              'storefront-ui' : [chart: 'charts/storefront-ui',  prefix: 'ui.image',      image: 'yas-storefront']
-            ]
+  when {
+    expression { env.CHANGED_SERVICES?.trim() }
+  }
+  steps {
+    dir('gitops-repo') {
+      script {
+        def gitopsConfig = [
+          'cart'          : [file: 'argocd/values/dev/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
+          'customer'      : [file: 'argocd/values/dev/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
+          'product'       : [file: 'argocd/values/dev/product.yaml',        root: '.backend.image', image: 'yas-product'],
+          'tax'           : [file: 'argocd/values/dev/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
+          'storefront-bff': [file: 'argocd/values/dev/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
+          'storefront-ui' : [file: 'argocd/values/dev/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
+        ]
 
-            env.CHANGED_SERVICES.split(',').each { svc ->
-              def cfg = gitopsConfig[svc]
-              def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
+        env.CHANGED_SERVICES.split(',').each { svc ->
+          def cfg = gitopsConfig[svc]
+          def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
 
-              echo "Updating GitOps ${cfg.chart}: ${imageRepo}:${env.SHORT_COMMIT}"
-
-              sh """
-                CHART_PATH='${cfg.chart}' \
-                IMAGE_PREFIX='${cfg.prefix}' \
-                IMAGE_REPO='${imageRepo}' \
-                IMAGE_TAG='${env.SHORT_COMMIT}' \
-                yq -i '
-                  (.spec.sources[] | select(.path == strenv(CHART_PATH)).helm.parameters) =
-                  (
-                    ((.spec.sources[] | select(.path == strenv(CHART_PATH)).helm.parameters) // [])
-                    | map(select(
-                        .name != strenv(IMAGE_PREFIX) + ".repository" and
-                        .name != strenv(IMAGE_PREFIX) + ".tag"
-                      ))
-                    + [
-                        {"name": strenv(IMAGE_PREFIX) + ".repository", "value": strenv(IMAGE_REPO)},
-                        {"name": strenv(IMAGE_PREFIX) + ".tag", "value": strenv(IMAGE_TAG)}
-                      ]
-                  )
-                ' ${env.GITOPS_FILE}
-              """
-            }
-
-            sh "git diff -- ${env.GITOPS_FILE}"
-          }
+          sh """
+            IMAGE_REPO='${imageRepo}' \
+            IMAGE_TAG='${env.SHORT_COMMIT}' \
+            yq -i '${cfg.root}.repository = strenv(IMAGE_REPO) | ${cfg.root}.tag = strenv(IMAGE_TAG)' ${cfg.file}
+          """
         }
+
+        sh 'git diff -- argocd/values/dev'
       }
     }
+  }
+}
+
 
     stage('Commit And Push GitOps') {
       when {
