@@ -13,14 +13,13 @@ pipeline {
     GITOPS_CREDENTIALS = 'github-token'
     GITOPS_REPO = 'github.com/TUNAS106/yas-gitops.git'
     GITOPS_BRANCH = 'main'
-    GITOPS_FILE = 'argocd/applications/yas-dev.yaml'
+    GITOPS_VALUES_DIR = 'argocd/values/dev'
   }
 
   stages {
     stage('Checkout Source') {
       steps {
         checkout scm
-
         sh 'git fetch --all --prune || true'
 
         script {
@@ -38,12 +37,12 @@ pipeline {
       steps {
         script {
           def serviceConfig = [
-            'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart',           chart: 'charts/cart',           prefix: 'backend.image'],
-            'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer',       chart: 'charts/customer',       prefix: 'backend.image'],
-            'product'       : [dir: 'product',        type: 'java', image: 'yas-product',        chart: 'charts/product',        prefix: 'backend.image'],
-            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax',            chart: 'charts/tax',            prefix: 'backend.image'],
-            'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff', chart: 'charts/storefront-bff', prefix: 'backend.image'],
-            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront',     chart: 'charts/storefront-ui',  prefix: 'ui.image']
+            'cart'          : [dir: 'cart'],
+            'customer'      : [dir: 'customer'],
+            'product'       : [dir: 'product'],
+            'tax'           : [dir: 'tax'],
+            'storefront-bff': [dir: 'storefront-bff'],
+            'storefront-ui' : [dir: 'storefront']
           ]
 
           def baseCommit = sh(
@@ -65,7 +64,7 @@ pipeline {
             ).trim()
           } else {
             echo "No base commit found. Building all demo services for initial run."
-            changedFilesText = serviceConfig.collect { k, v -> "${v.dir}/" }.join('\n')
+            changedFilesText = serviceConfig.collect { svc, cfg -> "${cfg.dir}/" }.join('\n')
           }
 
           def changedFiles = changedFilesText ? changedFilesText.split('\n') : []
@@ -182,38 +181,39 @@ pipeline {
     }
 
     stage('Update GitOps Dev Tags') {
-  when {
-    expression { env.CHANGED_SERVICES?.trim() }
-  }
-  steps {
-    dir('gitops-repo') {
-      script {
-        def gitopsConfig = [
-          'cart'          : [file: 'argocd/values/dev/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
-          'customer'      : [file: 'argocd/values/dev/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
-          'product'       : [file: 'argocd/values/dev/product.yaml',        root: '.backend.image', image: 'yas-product'],
-          'tax'           : [file: 'argocd/values/dev/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
-          'storefront-bff': [file: 'argocd/values/dev/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
-          'storefront-ui' : [file: 'argocd/values/dev/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
-        ]
+      when {
+        expression { env.CHANGED_SERVICES?.trim() }
+      }
+      steps {
+        dir('gitops-repo') {
+          script {
+            def gitopsConfig = [
+              'cart'          : [file: 'argocd/values/dev/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
+              'customer'      : [file: 'argocd/values/dev/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
+              'product'       : [file: 'argocd/values/dev/product.yaml',        root: '.backend.image', image: 'yas-product'],
+              'tax'           : [file: 'argocd/values/dev/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
+              'storefront-bff': [file: 'argocd/values/dev/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
+              'storefront-ui' : [file: 'argocd/values/dev/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
+            ]
 
-        env.CHANGED_SERVICES.split(',').each { svc ->
-          def cfg = gitopsConfig[svc]
-          def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
+            env.CHANGED_SERVICES.split(',').each { svc ->
+              def cfg = gitopsConfig[svc]
+              def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
 
-          sh """
-            IMAGE_REPO='${imageRepo}' \
-            IMAGE_TAG='${env.SHORT_COMMIT}' \
-            yq -i '${cfg.root}.repository = strenv(IMAGE_REPO) | ${cfg.root}.tag = strenv(IMAGE_TAG)' ${cfg.file}
-          """
+              echo "Updating ${cfg.file} -> ${imageRepo}:${env.SHORT_COMMIT}"
+
+              sh """
+                IMAGE_REPO='${imageRepo}' \
+                IMAGE_TAG='${env.SHORT_COMMIT}' \
+                yq -i '${cfg.root}.repository = strenv(IMAGE_REPO) | ${cfg.root}.tag = strenv(IMAGE_TAG)' ${cfg.file}
+              """
+            }
+
+            sh 'git diff -- argocd/values/dev'
+          }
         }
-
-        sh 'git diff -- argocd/values/dev'
       }
     }
-  }
-}
-
 
     stage('Commit And Push GitOps') {
       when {
@@ -230,7 +230,7 @@ pipeline {
               exit 0
             fi
 
-            git add ${GITOPS_FILE}
+            git add ${GITOPS_VALUES_DIR}
             git commit -m "Deploy dev images ${SHORT_COMMIT}"
             git push origin ${GITOPS_BRANCH}
           """
