@@ -34,6 +34,8 @@ pipeline {
 
         script {
           def requestedTag = params.RELEASE_TAG?.trim()
+          def webhookRef = env.GIT_REF?.trim()
+          def webhookTag = webhookRef?.startsWith('refs/tags/') ? webhookRef.replaceFirst('^refs/tags/', '') : ''
           def currentTag = ''
 
           if (!requestedTag) {
@@ -43,7 +45,7 @@ pipeline {
             ).trim()
           }
 
-          env.RELEASE_VERSION = requestedTag ?: currentTag ?: env.TAG_NAME ?: ''
+          env.RELEASE_VERSION = requestedTag ?: webhookTag ?: currentTag ?: env.TAG_NAME ?: ''
 
           if (!env.RELEASE_VERSION) {
             error 'No release tag found. Provide RELEASE_TAG=v1.0.1 or trigger this job from a Git tag.'
