@@ -36,16 +36,20 @@ pipeline {
           def requestedTag = params.RELEASE_TAG?.trim()
           def webhookRef = env.GIT_REF?.trim()
           def webhookTag = webhookRef?.startsWith('refs/tags/') ? webhookRef.replaceFirst('^refs/tags/', '') : ''
+          def multibranchTag = env.TAG_NAME?.trim()
+          if (!multibranchTag && env.BRANCH_NAME ==~ /^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$/) {
+            multibranchTag = env.BRANCH_NAME
+          }
           def currentTag = ''
 
-          if (!requestedTag) {
+          if (!requestedTag && !webhookTag && !multibranchTag) {
             currentTag = sh(
               script: 'git describe --tags --exact-match HEAD 2>/dev/null || true',
               returnStdout: true
             ).trim()
           }
 
-          env.RELEASE_VERSION = requestedTag ?: webhookTag ?: currentTag ?: env.TAG_NAME ?: ''
+          env.RELEASE_VERSION = requestedTag ?: webhookTag ?: multibranchTag ?: currentTag ?: ''
 
           if (!env.RELEASE_VERSION) {
             error 'No release tag found. Provide RELEASE_TAG=v1.0.1 or trigger this job from a Git tag.'
