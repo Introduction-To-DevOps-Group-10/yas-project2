@@ -1,0 +1,210 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+  }
+
+  parameters {
+    string(
+      name: 'RELEASE_TAG',
+      defaultValue: '',
+      description: 'Release tag to deploy to staging, for example v1.0.1. Leave empty when this job is triggered by a Git tag.'
+    )
+  }
+
+  environment {
+    DOCKERHUB_NAMESPACE = 'tunas106'
+    DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
+
+    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_REPO = 'github.com/TUNAS106/yas-gitops.git'
+    GITOPS_BRANCH = 'main'
+    GITOPS_VALUES_DIR = 'argocd/values/staging'
+
+    RELEASE_SERVICES = 'cart,customer,product,tax,storefront-bff,storefront-ui'
+  }
+
+  stages {
+    stage('Checkout Source') {
+      steps {
+        checkout scm
+        sh 'git fetch --all --tags --prune || true'
+
+        script {
+          def requestedTag = params.RELEASE_TAG?.trim()
+          def currentTag = ''
+
+          if (!requestedTag) {
+            currentTag = sh(
+              script: 'git describe --tags --exact-match HEAD 2>/dev/null || true',
+              returnStdout: true
+            ).trim()
+          }
+
+          env.RELEASE_VERSION = requestedTag ?: currentTag ?: env.TAG_NAME ?: ''
+
+          if (!env.RELEASE_VERSION) {
+            error 'No release tag found. Provide RELEASE_TAG=v1.0.1 or trigger this job from a Git tag.'
+          }
+
+          if (!(env.RELEASE_VERSION ==~ /^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$/)) {
+            error "Invalid release tag '${env.RELEASE_VERSION}'. Expected format like v1.0.1."
+          }
+
+          sh "git checkout -f ${env.RELEASE_VERSION}"
+
+          env.RELEASE_COMMIT = sh(
+            script: 'git rev-parse --short=7 HEAD',
+            returnStdout: true
+          ).trim()
+
+          echo "Current staging release: ${env.RELEASE_VERSION}"
+          echo "Release commit: ${env.RELEASE_COMMIT}"
+          echo "Release services: ${env.RELEASE_SERVICES}"
+        }
+      }
+    }
+
+    stage('Prepare Docker Buildx') {
+      steps {
+        sh '''
+          docker buildx inspect yas-builder >/dev/null 2>&1 || docker buildx create --name yas-builder --use
+          docker buildx use yas-builder
+          docker buildx inspect --bootstrap
+        '''
+      }
+    }
+
+    stage('Login Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.DOCKERHUB_CREDENTIALS,
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+        }
+      }
+    }
+
+    stage('Build And Push Release Images') {
+      steps {
+        script {
+          def serviceConfig = [
+            'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart'],
+            'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer'],
+            'product'       : [dir: 'product',        type: 'java', image: 'yas-product'],
+            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax'],
+            'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff'],
+            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront']
+          ]
+
+          env.RELEASE_SERVICES.split(',').each { svc ->
+            def cfg = serviceConfig[svc]
+            def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
+            def imageTag = env.RELEASE_VERSION
+
+            echo "Building ${svc} -> ${imageRepo}:${imageTag}"
+
+            if (cfg.type == 'java') {
+              sh "mvn -B clean package -pl ${cfg.dir} -am -DskipTests"
+            }
+
+            sh """
+              docker buildx build \
+                --platform linux/amd64 \
+                -t ${imageRepo}:${imageTag} \
+                --push \
+                ./${cfg.dir}
+            """
+          }
+        }
+      }
+    }
+
+    stage('Checkout GitOps Repo') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.GITOPS_CREDENTIALS,
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh '''
+            rm -rf gitops-repo
+            set +x
+            git clone https://${GIT_USER}:${GIT_TOKEN}@${GITOPS_REPO} gitops-repo
+            set -x
+          '''
+        }
+      }
+    }
+
+    stage('Update GitOps Staging Tags') {
+      steps {
+        dir('gitops-repo') {
+          script {
+            def gitopsConfig = [
+              'cart'          : [file: 'argocd/values/staging/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
+              'customer'      : [file: 'argocd/values/staging/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
+              'product'       : [file: 'argocd/values/staging/product.yaml',        root: '.backend.image', image: 'yas-product'],
+              'tax'           : [file: 'argocd/values/staging/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
+              'storefront-bff': [file: 'argocd/values/staging/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
+              'storefront-ui' : [file: 'argocd/values/staging/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
+            ]
+
+            env.RELEASE_SERVICES.split(',').each { svc ->
+              def cfg = gitopsConfig[svc]
+              def imageRepo = "${env.DOCKERHUB_NAMESPACE}/${cfg.image}"
+
+              echo "Updating ${cfg.file} -> ${imageRepo}:${env.RELEASE_VERSION}"
+
+              sh """
+                IMAGE_REPO='${imageRepo}' \
+                IMAGE_TAG='${env.RELEASE_VERSION}' \
+                yq -i '${cfg.root}.repository = strenv(IMAGE_REPO) | ${cfg.root}.tag = strenv(IMAGE_TAG)' ${cfg.file}
+              """
+            }
+
+            sh 'git diff -- argocd/values/staging'
+          }
+        }
+      }
+    }
+
+    stage('Commit And Push GitOps') {
+      steps {
+        dir('gitops-repo') {
+          sh """
+            git config user.name "jenkins"
+            git config user.email "jenkins@example.com"
+
+            if git diff --quiet; then
+              echo "No GitOps changes to commit"
+              exit 0
+            fi
+
+            git add ${GITOPS_VALUES_DIR}
+            git commit -m "Deploy staging images ${RELEASE_VERSION}"
+            git push origin ${GITOPS_BRANCH}
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'docker logout || true'
+    }
+
+    success {
+      echo "deploy_staging completed. Services: ${env.RELEASE_SERVICES}, tag: ${env.RELEASE_VERSION}"
+    }
+
+    failure {
+      echo "deploy_staging failed. Check the failed stage above."
+    }
+  }
+}
