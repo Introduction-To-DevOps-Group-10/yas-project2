@@ -6,7 +6,7 @@ export default function AuthenticationInfo() {
   type AuthenticatedUser = {
     username: string;
   };
-
+//test argoCD on dev
   type AuthenticationInfoVm = {
     isAuthenticated: boolean;
     authenticatedUser: AuthenticatedUser;
