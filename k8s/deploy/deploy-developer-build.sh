@@ -142,6 +142,9 @@ deploy_swagger_chart() {
   if [[ "$use_nodeport" == "true" ]]; then
     extra_args+=(--set service.type=NodePort)
     extra_args+=(--set ingress.enabled=false)
+  else
+    extra_args+=(--set ingress.enabled=true)
+    extra_args+=(--set-string ingress.host="api.$DOMAIN")
   fi
 
   helm dependency build ../charts/swagger-ui
@@ -196,7 +199,7 @@ deploy_swagger_chart "$(resolve_service_tag swagger-ui)" "$(resolve_target_flag 
 
 sleep 20
 
-for chart in cart customer inventory media order product promotion recommendation webhook sampledata; do
+for chart in cart customer inventory media order product promotion recommendation tax webhook sampledata; do
   ingress_host="api.$DOMAIN"
   ingress_path="/$chart"
   target_tag="$(resolve_service_tag "$chart")"
@@ -222,3 +225,10 @@ if [[ -n "$node_port" ]]; then
 else
   echo "Service $release_name was not exposed as NodePort, so no developer URL was generated."
 fi
+
+echo
+echo "Default browser test URLs:"
+echo "  Storefront: http://storefront.${DOMAIN}"
+echo "  Backoffice: http://backoffice.${DOMAIN}"
+echo "  Swagger UI: http://api.${DOMAIN}/swagger-ui"
+echo "  Identity:   http://identity.${DOMAIN}"
