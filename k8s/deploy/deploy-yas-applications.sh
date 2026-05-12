@@ -1,8 +1,8 @@
 #!/bin/bash
 set -x
 
-# Set DISABLE_SERVICEMONITOR=true to skip creating ServiceMonitor resources.
-DISABLE_SERVICEMONITOR="${DISABLE_SERVICEMONITOR:-false}"
+# Set DISABLE_SERVICEMONITOR=false after installing observability to create ServiceMonitor resources.
+DISABLE_SERVICEMONITOR="${DISABLE_SERVICEMONITOR:-true}"
 SERVICE_MONITOR_ARGS=()
 if [ "$DISABLE_SERVICEMONITOR" = "true" ]; then
     SERVICE_MONITOR_ARGS+=(--set backend.serviceMonitor.enabled=false)

@@ -38,10 +38,18 @@ minikube addons enable ingress
 ```shell
 ./setup-cluster.sh
 ```
+- Execute [setup-observability.sh](setup-observability.sh) when you want to install or upgrade the observability stack: `Prometheus`, `Grafana`, `Loki`, `Tempo`, `Promtail`, `OpenTelemetry Collector`
+```shell
+./setup-observability.sh
+```
 - Verify all servers run successful on namespaces: `postgres`, `elasticsearch`, `kafka`, `keycloak`
 - After all above servers are running status, execute  [deploy-yas-applications.sh](deploy-yas-applications.sh) file to deploy all of yas applications to `yas` namespace
 ```shell
 ./deploy-yas-applications
+```
+When observability is installed and you want Prometheus to scrape YAS metrics, deploy applications with ServiceMonitor enabled:
+```shell
+DISABLE_SERVICEMONITOR=false ./deploy-yas-applications.sh
 ```
 All of YAS microservice deployed in `yas` namespace
 - Setup hosts file
