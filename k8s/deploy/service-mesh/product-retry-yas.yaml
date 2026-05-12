@@ -1,0 +1,31 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: product-retry
+  namespace: yas
+spec:
+  hosts:
+    - product
+    - product.yas.svc.cluster.local
+  http:
+    - match:
+        - port: 8090
+          uri:
+            prefix: /actuator
+      route:
+        - destination:
+            host: product.yas.svc.cluster.local
+            port:
+              number: 8090
+    - match:
+        - uri:
+            prefix: /product
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,connect-failure,refused-stream,gateway-error,reset
+      route:
+        - destination:
+            host: product.yas.svc.cluster.local
+            port:
+              number: 80
