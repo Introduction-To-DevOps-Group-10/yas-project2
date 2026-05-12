@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ISTIO_NAMESPACE="${ISTIO_NAMESPACE:-istio-system}"
-APP_NAMESPACE="${APP_NAMESPACE:-yas}"
+APP_NAMESPACE="${APP_NAMESPACE:-service-mesh}"
 
 helm repo add istio https://istio-release.storage.googleapis.com/charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts

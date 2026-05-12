@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: curl-client-cart
-  namespace: yas
+  namespace: service-mesh
   labels:
     app: curl-client-cart
 spec:

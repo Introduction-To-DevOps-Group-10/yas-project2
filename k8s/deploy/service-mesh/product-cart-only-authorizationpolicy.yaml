@@ -2,7 +2,7 @@ apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
   name: product-cart-only
-  namespace: yas
+  namespace: service-mesh
 spec:
   selector:
     matchLabels:
@@ -12,7 +12,7 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/yas/sa/cart
+              - cluster.local/ns/service-mesh/sa/cart
       to:
         - operation:
             ports:
