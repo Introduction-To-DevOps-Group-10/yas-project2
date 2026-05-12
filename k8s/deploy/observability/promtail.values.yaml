@@ -2,5 +2,10 @@ config:
   clients:
     - url: http://loki-gateway/loki/api/v1/push
   snippets:
+    extraRelabelConfigs:
+      - source_labels:
+          - __meta_kubernetes_namespace
+        action: keep
+        regex: yas|yas-dev|yas-staging|observability
     pipelineStages:
       - docker: {}
