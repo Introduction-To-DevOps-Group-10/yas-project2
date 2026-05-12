@@ -7,9 +7,9 @@ metadata:
 spec:
   external:
     url: http://prometheus-grafana
-    adminPassword:
+    adminUser:
       name: grafana-admin-credentials
       key: username
-    adminUser:
+    adminPassword:
       name: grafana-admin-credentials
       key: password

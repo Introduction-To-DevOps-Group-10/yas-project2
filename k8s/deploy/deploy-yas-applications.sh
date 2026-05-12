@@ -2,7 +2,7 @@
 set -x
 
 # Set DISABLE_SERVICEMONITOR=true to skip creating ServiceMonitor resources.
-DISABLE_SERVICEMONITOR="${DISABLE_SERVICEMONITOR:-true}"
+DISABLE_SERVICEMONITOR="${DISABLE_SERVICEMONITOR:-false}"
 SERVICE_MONITOR_ARGS=()
 if [ "$DISABLE_SERVICEMONITOR" = "true" ]; then
     SERVICE_MONITOR_ARGS+=(--set backend.serviceMonitor.enabled=false)
