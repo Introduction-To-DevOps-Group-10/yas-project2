@@ -110,6 +110,7 @@ pipeline {
             zricethezav/gitleaks:latest detect \
             --source=/repo \
             --config=/repo/gitleaks.toml \
+            --no-git \
             --redact \
             --verbose
         '''
