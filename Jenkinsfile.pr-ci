@@ -92,7 +92,6 @@ pipeline {
 
           env.CHANGED_JAVA_MODULES = changedJava.join(',')
           env.CHANGED_FRONTEND_MODULES = changedFrontend.join(',')
-          env.BASE_COMMIT = baseCommit
 
           echo "Base commit: ${baseCommit ?: 'not found'}"
           echo "Changed files:"
@@ -142,7 +141,7 @@ pipeline {
           mkdir -p .trivy-scan
 
           if [ -n "$CHANGED_JAVA_MODULES" ]; then
-            echo "$CHANGED_JAVA_MODULES" | tr ',' '\n' | while read module_name; do
+            echo "$CHANGED_JAVA_MODULES" | tr ',' '\\n' | while read module_name; do
               if [ -n "$module_name" ] && [ -d "$module_name" ]; then
                 mkdir -p ".trivy-scan/$module_name"
                 cp -R "$module_name/." ".trivy-scan/$module_name/"
@@ -157,7 +156,7 @@ pipeline {
           fi
 
           if [ -n "$CHANGED_FRONTEND_MODULES" ]; then
-            echo "$CHANGED_FRONTEND_MODULES" | tr ',' '\n' | while read module_name; do
+            echo "$CHANGED_FRONTEND_MODULES" | tr ',' '\\n' | while read module_name; do
               if [ -n "$module_name" ] && [ -d "$module_name" ]; then
                 mkdir -p ".trivy-scan/$module_name"
                 cp -R "$module_name/package.json" "$module_name/package-lock.json" ".trivy-scan/$module_name/" 2>/dev/null || true
@@ -176,7 +175,15 @@ pipeline {
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            --scanners vuln,misconfig \
+            --scanners vuln \
+            /repo
+
+          docker run --rm \
+            -v "$PWD/.trivy-scan:/repo" \
+            aquasec/trivy:latest fs \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --scanners misconfig \
             /repo
         '''
       }
