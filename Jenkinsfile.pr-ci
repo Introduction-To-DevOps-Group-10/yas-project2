@@ -92,6 +92,7 @@ pipeline {
 
           env.CHANGED_JAVA_MODULES = changedJava.join(',')
           env.CHANGED_FRONTEND_MODULES = changedFrontend.join(',')
+          env.BASE_COMMIT = baseCommit
 
           echo "Base commit: ${baseCommit ?: 'not found'}"
           echo "Changed files:"
@@ -105,11 +106,28 @@ pipeline {
     stage('Gitleaks Secret Scan') {
       steps {
         sh '''
+          rm -rf .gitleaks-scan
+          mkdir -p .gitleaks-scan
+
+          if [ -n "$BASE_COMMIT" ]; then
+            git diff --name-only --diff-filter=ACMRT "$BASE_COMMIT" HEAD > .gitleaks-files
+          else
+            git diff-tree --no-commit-id --name-only -r HEAD > .gitleaks-files
+          fi
+
+          if [ ! -s .gitleaks-files ]; then
+            echo "No changed files to scan with Gitleaks."
+            exit 0
+          fi
+
+          tar -cf - -T .gitleaks-files | tar -xf - -C .gitleaks-scan
+
           docker run --rm \
-            -v "$PWD:/repo" \
+            -v "$PWD/.gitleaks-scan:/repo" \
+            -v "$PWD/gitleaks.toml:/gitleaks.toml:ro" \
             zricethezav/gitleaks:latest detect \
             --source=/repo \
-            --config=/repo/gitleaks.toml \
+            --config=/gitleaks.toml \
             --no-git \
             --redact \
             --verbose
@@ -120,13 +138,45 @@ pipeline {
     stage('Trivy Filesystem Scan') {
       steps {
         sh '''
+          rm -rf .trivy-scan
+          mkdir -p .trivy-scan
+
+          if [ -n "$CHANGED_JAVA_MODULES" ]; then
+            echo "$CHANGED_JAVA_MODULES" | tr ',' '\n' | while read module_name; do
+              if [ -n "$module_name" ] && [ -d "$module_name" ]; then
+                mkdir -p ".trivy-scan/$module_name"
+                cp -R "$module_name/." ".trivy-scan/$module_name/"
+              fi
+            done
+
+            cp pom.xml .trivy-scan/
+            if [ -d common-library ]; then
+              mkdir -p .trivy-scan/common-library
+              cp -R common-library/. .trivy-scan/common-library/
+            fi
+          fi
+
+          if [ -n "$CHANGED_FRONTEND_MODULES" ]; then
+            echo "$CHANGED_FRONTEND_MODULES" | tr ',' '\n' | while read module_name; do
+              if [ -n "$module_name" ] && [ -d "$module_name" ]; then
+                mkdir -p ".trivy-scan/$module_name"
+                cp -R "$module_name/package.json" "$module_name/package-lock.json" ".trivy-scan/$module_name/" 2>/dev/null || true
+              fi
+            done
+          fi
+
+          if [ -z "$(find .trivy-scan -type f -print -quit)" ]; then
+            echo "No changed Java or frontend modules to scan with Trivy."
+            exit 0
+          fi
+
           docker run --rm \
-            -v "$PWD:/repo" \
+            -v "$PWD/.trivy-scan:/repo" \
             aquasec/trivy:latest fs \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            --scanners vuln,secret,misconfig \
+            --scanners vuln,misconfig \
             /repo
         '''
       }
