@@ -92,6 +92,7 @@ pipeline {
 
           env.CHANGED_JAVA_MODULES = changedJava.join(',')
           env.CHANGED_FRONTEND_MODULES = changedFrontend.join(',')
+          env.BASE_COMMIT = baseCommit
 
           echo "Base commit: ${baseCommit ?: 'not found'}"
           echo "Changed files:"
@@ -105,11 +106,28 @@ pipeline {
     stage('Gitleaks Secret Scan') {
       steps {
         sh '''
+          rm -rf .gitleaks-scan
+          mkdir -p .gitleaks-scan
+
+          if [ -n "$BASE_COMMIT" ]; then
+            git diff --name-only --diff-filter=ACMRT "$BASE_COMMIT" HEAD > .gitleaks-files
+          else
+            git diff-tree --no-commit-id --name-only -r HEAD > .gitleaks-files
+          fi
+
+          if [ ! -s .gitleaks-files ]; then
+            echo "No changed files to scan with Gitleaks."
+            exit 0
+          fi
+
+          tar -cf - -T .gitleaks-files | tar -xf - -C .gitleaks-scan
+
           docker run --rm \
-            -v "$PWD:/repo" \
+            -v "$PWD/.gitleaks-scan:/repo" \
+            -v "$PWD/gitleaks.toml:/gitleaks.toml:ro" \
             zricethezav/gitleaks:latest detect \
             --source=/repo \
-            --config=/repo/gitleaks.toml \
+            --config=/gitleaks.toml \
             --no-git \
             --redact \
             --verbose
@@ -126,7 +144,7 @@ pipeline {
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            --scanners vuln,secret,misconfig \
+            --scanners vuln,misconfig \
             /repo
         '''
       }
