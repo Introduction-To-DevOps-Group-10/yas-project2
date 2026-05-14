@@ -13,7 +13,7 @@ pipeline {
     DOCKERHUB_NAMESPACE = 'phucnotphuc'
     DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
 
-    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_CREDENTIALS = 'github-devops'
     GITOPS_REPO = 'github.com/Introduction-To-DevOps-Group-10/yas-gitops.git'
     GITOPS_BRANCH = 'main'
     GITOPS_VALUES_DIR = 'argocd/values/dev'
