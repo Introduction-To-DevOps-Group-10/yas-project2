@@ -18,8 +18,14 @@ pipeline {
         'cart',
         'customer',
         'inventory',
+        'location',
+        'media',
         'order',
-        'product'
+        'product',
+        'promotion',
+        'rating',
+        'recommendation',
+        'sampledata'
       ],
       description: 'Service to build and deploy to preview.'
     )
