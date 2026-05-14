@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: service-mesh
+  labels:
+    istio-injection: enabled
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: service-mesh
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: cart-mtls
+  namespace: service-mesh
+spec:
+  host: cart.service-mesh.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: customer-mtls
+  namespace: service-mesh
+spec:
+  host: customer.service-mesh.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: order-mtls
+  namespace: service-mesh
+spec:
+  host: order.service-mesh.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: product-mtls
+  namespace: service-mesh
+spec:
+  host: product.service-mesh.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

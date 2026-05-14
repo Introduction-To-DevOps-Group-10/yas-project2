@@ -1,0 +1,19 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: flaky-retry
+  namespace: yas
+spec:
+  hosts:
+    - flaky
+    - flaky.yas.svc.cluster.local
+  http:
+    - retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,connect-failure,refused-stream,gateway-error,reset
+      route:
+        - destination:
+            host: flaky.yas.svc.cluster.local
+            port:
+              number: 80
