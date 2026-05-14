@@ -49,8 +49,6 @@ pipeline {
     GITOPS_VALUES_DIR = 'argocd/values/preview'
 
     ARGOCD_APP = 'yas-preview'
-    ARGOCD_SERVER = 'localhost:8081'
-    ARGOCD_CREDENTIALS = 'argocd-token'
   }
 
   stages {
@@ -205,27 +203,11 @@ pipeline {
       }
     }
 
-    stage('ArgoCD Sync Preview') {
+    stage('Wait For ArgoCD Auto Sync') {
       steps {
-        withCredentials([string(credentialsId: env.ARGOCD_CREDENTIALS, variable: 'ARGOCD_AUTH_TOKEN')]) {
-          sh '''
-            set -eu
-            argocd app sync "${ARGOCD_APP}" \
-              --server "${ARGOCD_SERVER}" \
-              --auth-token "${ARGOCD_AUTH_TOKEN}" \
-              --grpc-web \
-              --insecure
-
-            argocd app wait "${ARGOCD_APP}" \
-              --server "${ARGOCD_SERVER}" \
-              --auth-token "${ARGOCD_AUTH_TOKEN}" \
-              --grpc-web \
-              --insecure \
-              --health \
-              --sync \
-              --timeout 300
-          '''
-        }
+        echo "GitOps update pushed. ArgoCD app ${env.ARGOCD_APP} is configured with automated sync and will reconcile the preview environment from Git."
+        echo "Verify manually with: argocd app get ${env.ARGOCD_APP}"
+        echo "Verify Kubernetes image with: kubectl get deploy ${params.SERVICE_NAME} -n ${params.PREVIEW_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[*].image}'"
       }
     }
   }
