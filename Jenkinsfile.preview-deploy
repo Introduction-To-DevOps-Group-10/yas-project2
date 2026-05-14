@@ -128,7 +128,11 @@ pipeline {
             sh '''
               set -eu
               mvn -B -pl "${SOURCE_DIR}" -am clean package -DskipTests
-              docker build -t "${FULL_IMAGE}" "${SOURCE_DIR}"
+              if [ "${SOURCE_DIR}" = "media" ]; then
+                docker build -f media/Dockerfile.sampledata -t "${FULL_IMAGE}" .
+              else
+                docker build -t "${FULL_IMAGE}" "${SOURCE_DIR}"
+              fi
             '''
           } else {
             sh '''

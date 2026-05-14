@@ -159,7 +159,11 @@ pipeline {
               sh """
                 set -eu
                 mvn -B -pl '${cfg.sourceDir}' -am clean package ${testFlag}
-                docker build -t '${fullImage}' '${cfg.sourceDir}'
+                if [ '${cfg.sourceDir}' = 'media' ]; then
+                  docker build -f media/Dockerfile.sampledata -t '${fullImage}' .
+                else
+                  docker build -t '${fullImage}' '${cfg.sourceDir}'
+                fi
                 docker push '${fullImage}'
                 docker rmi '${fullImage}' || true
               """
