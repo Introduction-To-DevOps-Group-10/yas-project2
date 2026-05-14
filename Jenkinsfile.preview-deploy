@@ -49,7 +49,7 @@ pipeline {
     GITOPS_VALUES_DIR = 'argocd/values/preview'
 
     ARGOCD_APP = 'yas-preview'
-    ARGOCD_SERVER = 'argocd.yas.local.com'
+    ARGOCD_SERVER = 'localhost:8081'
     ARGOCD_CREDENTIALS = 'argocd-token'
   }
 
@@ -213,12 +213,14 @@ pipeline {
             argocd app sync "${ARGOCD_APP}" \
               --server "${ARGOCD_SERVER}" \
               --auth-token "${ARGOCD_AUTH_TOKEN}" \
-              --grpc-web
+              --grpc-web \
+              --insecure
 
             argocd app wait "${ARGOCD_APP}" \
               --server "${ARGOCD_SERVER}" \
               --auth-token "${ARGOCD_AUTH_TOKEN}" \
               --grpc-web \
+              --insecure \
               --health \
               --sync \
               --timeout 300
