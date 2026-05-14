@@ -64,6 +64,9 @@ Danh sach file:
 - `curl-client-cart-yas.yaml`
 - `curl-client-order-yas.yaml`
 - `test-yas-service-mesh.sh`
+- `retry-demo-flaky-app-yas.yaml`
+- `retry-demo-virtualservice-yas.yaml`
+- `test-retry-demo-yas.sh`
 
 ### 3.1. `yas-mesh-core.yaml`
 
@@ -232,6 +235,41 @@ Lenh chay:
 ```bash
 k8s/deploy/service-mesh/test-yas-service-mesh.sh
 ```
+
+### 3.7. Retry demo files
+
+De chung minh retry khi upstream tra loi `500`, bo file retry demo duoc them rieng,
+khong dung truc tiep service `product` that:
+
+- `retry-demo-flaky-app-yas.yaml`
+- `retry-demo-virtualservice-yas.yaml`
+- `test-retry-demo-yas.sh`
+
+`retry-demo-flaky-app-yas.yaml` tao service `flaky` gom hai deployment:
+
+- `flaky-good`: luon tra HTTP `200`.
+- `flaky-bad`: luon tra HTTP `500`.
+
+Ca hai deployment co label chung `app: flaky`, nen Kubernetes Service `flaky`
+load balance request den ca endpoint tot va endpoint loi. Day la cach tao loi
+upstream that de test retry, thay vi chi fault injection o client proxy.
+
+`retry-demo-virtualservice-yas.yaml` cau hinh retry:
+
+```yaml
+retries:
+  attempts: 3
+  perTryTimeout: 2s
+  retryOn: 5xx,connect-failure,refused-stream,gateway-error,reset
+```
+
+`test-retry-demo-yas.sh` se:
+
+1. Deploy `flaky-good`, `flaky-bad`, service `flaky`, va DestinationRule mTLS.
+2. Chay 30 request khi chua co retry policy.
+3. Apply `VirtualService/flaky-retry`.
+4. Chay lai 30 request sau khi co retry policy.
+5. In summary so luong HTTP code truoc va sau retry.
 
 ## 4. Cac buoc cau hinh
 
@@ -534,6 +572,113 @@ Ket luan:
 - Retry policy da duoc cau hinh.
 - Traffic binh thuong toi `product` van thanh cong.
 - Retry duoc thuc thi boi Envoy sidecar, khong phu thuoc vao code ung dung.
+
+### 5.4.1. Test retry voi upstream tra loi 500 that
+
+Muc tieu:
+
+- Chung minh Envoy sidecar retry khi upstream service tra HTTP `500`.
+- Tao service demo `flaky` co mot endpoint tot va mot endpoint loi.
+- So sanh ket qua truoc va sau khi apply `VirtualService` retry.
+
+Lenh chay:
+
+```bash
+k8s/deploy/service-mesh/test-retry-demo-yas.sh
+```
+
+Ket qua truoc khi apply retry policy:
+
+```text
+=== Before retry policy ===
+500
+500
+500
+500
+200
+200
+200
+200
+500
+500
+500
+500
+200
+200
+500
+500
+500
+500
+200
+200
+200
+500
+500
+500
+200
+500
+500
+200
+500
+500
+--- Summary before retry ---
+200: 11
+500: 19
+```
+
+Ket qua sau khi apply retry policy:
+
+```text
+virtualservice.networking.istio.io/flaky-retry created
+=== After retry policy ===
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+--- Summary after retry ---
+200: 30
+```
+
+Ket luan:
+
+- Khi chua co retry policy, request bi load balance vao endpoint loi va co nhieu
+  ket qua `500`.
+- Sau khi apply `VirtualService` retry, Envoy sidecar retry request bi `500`.
+- Trong lan test nay, 30/30 request tra ve `200`.
+- Retry khong nam trong code ung dung, ma duoc thuc thi tai tang service mesh.
+
+Sau khi lay evidence, resource demo duoc xoa de tranh ton tai nguyen:
+
+```bash
+kubectl delete -f k8s/deploy/service-mesh/retry-demo-virtualservice-yas.yaml --ignore-not-found
+kubectl delete -f k8s/deploy/service-mesh/retry-demo-flaky-app-yas.yaml --ignore-not-found
+```
 
 ### 5.5. Test 5: Kiem tra AuthorizationPolicy
 
