@@ -7,6 +7,9 @@ pipeline {
   }
 
   environment {
+    JAVA_HOME = '/usr/lib/jvm/java-25-openjdk-amd64'
+    PATH = "${JAVA_HOME}/bin:${env.PATH}"
+
     DOCKERHUB_NAMESPACE = 'phucnotphuc'
     DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
 
