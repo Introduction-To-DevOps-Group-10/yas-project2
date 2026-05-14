@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Cập nhật thông tin của bạn
-        DOCKERHUB_USERNAME = 'tunas106' 
+        DOCKERHUB_USERNAME = 'phucnotphuc' 
         DOCKERHUB_CREDENTIALS = 'dockerhub-credentials' 
     }
 
