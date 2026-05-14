@@ -18,19 +18,8 @@ pipeline {
         'cart',
         'customer',
         'inventory',
-        'location',
-        'media',
         'order',
-        'payment',
-        'payment-paypal',
-        'product',
-        'promotion',
-        'rating',
-        'recommendation',
-        'sampledata',
-        'search',
-        'tax',
-        'webhook'
+        'product'
       ],
       description: 'Service to build and deploy to preview.'
     )
@@ -48,7 +37,7 @@ pipeline {
     GITOPS_CREDENTIALS = 'github-token'
     GITOPS_VALUES_DIR = 'argocd/values/preview'
 
-    ARGOCD_APP = 'yas-preview'
+    ARGOCD_APPS = 'yas-preview-core, yas-preview-apps, yas-preview-ui'
   }
 
   stages {
@@ -205,8 +194,8 @@ pipeline {
 
     stage('Wait For ArgoCD Auto Sync') {
       steps {
-        echo "GitOps update pushed. ArgoCD app ${env.ARGOCD_APP} is configured with automated sync and will reconcile the preview environment from Git."
-        echo "Verify manually with: argocd app get ${env.ARGOCD_APP}"
+        echo "GitOps update pushed. ArgoCD preview apps (${env.ARGOCD_APPS}) are configured with automated sync and will reconcile the preview environment from Git."
+        echo "Verify manually with: argocd app get yas-preview-core && argocd app get yas-preview-apps && argocd app get yas-preview-ui"
         echo "Verify Kubernetes image with: kubectl get deploy ${params.SERVICE_NAME} -n ${params.PREVIEW_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[*].image}'"
       }
     }
