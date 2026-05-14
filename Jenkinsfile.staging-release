@@ -1,0 +1,277 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    skipDefaultCheckout(false)
+  }
+
+  parameters {
+    string(name: 'RELEASE_VERSION', defaultValue: '', description: 'Release image tag, for example v1.0.10. Leave empty when building from a Git tag job.')
+    choice(name: 'RELEASE_GROUP', choices: ['core', 'apps', 'ui', 'all'], description: 'Service group to release sequentially.')
+    string(name: 'SOURCE_REF', defaultValue: '', description: 'Git tag/branch/commit to build. Leave empty to use RELEASE_VERSION, TAG_NAME, or current checkout.')
+    booleanParam(name: 'RUN_TESTS', defaultValue: false, description: 'Run Maven tests for Java services before packaging. Disabled by default to keep staging release lightweight.')
+  }
+
+  environment {
+    DOCKERHUB_USERNAME = 'tunas106'
+    DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
+
+    GITOPS_REPO_URL = 'https://github.com/TUNAS106/gitops.git'
+    GITOPS_BRANCH = 'main'
+    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_VALUES_DIR = 'argocd/values/staging'
+
+    ARGOCD_APPS = 'yas-staging-core, yas-staging-apps, yas-staging-ui'
+  }
+
+  stages {
+    stage('Checkout Source') {
+      steps {
+        checkout scm
+        sh 'git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*" --prune || true'
+        script {
+          def requestedVersion = params.RELEASE_VERSION?.trim()
+          def tagName = env.TAG_NAME?.trim()
+          def branchLooksLikeTag = (env.BRANCH_NAME ==~ /^v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$/) ? env.BRANCH_NAME : ''
+          def exactTag = sh(script: 'git describe --tags --exact-match HEAD 2>/dev/null || true', returnStdout: true).trim()
+
+          env.RELEASE_VERSION = requestedVersion ?: tagName ?: branchLooksLikeTag ?: exactTag
+          if (!env.RELEASE_VERSION) {
+            error 'Missing RELEASE_VERSION. Use a version tag like v1.0.10.'
+          }
+          if (!(env.RELEASE_VERSION ==~ /^v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$/)) {
+            error "Invalid RELEASE_VERSION '${env.RELEASE_VERSION}'. Expected format like v1.0.10."
+          }
+
+          env.SOURCE_REF = params.SOURCE_REF?.trim() ?: env.RELEASE_VERSION
+          sh '''
+            set -eu
+            if git rev-parse --verify --quiet "refs/remotes/origin/${SOURCE_REF}" >/dev/null; then
+              git checkout -B "${SOURCE_REF}" "origin/${SOURCE_REF}"
+            else
+              git checkout -f "${SOURCE_REF}"
+            fi
+            git rev-parse --short=7 HEAD > .release-commit
+          '''
+          env.RELEASE_COMMIT = readFile('.release-commit').trim()
+
+          echo "Release version: ${env.RELEASE_VERSION}"
+          echo "Source ref: ${env.SOURCE_REF}"
+          echo "Release commit: ${env.RELEASE_COMMIT}"
+          echo "Release group: ${params.RELEASE_GROUP}"
+        }
+      }
+    }
+
+    stage('Resolve Release Group') {
+      steps {
+        script {
+          def groups = [
+            core: ['product', 'customer', 'inventory'],
+            apps: [
+              'cart',
+              'order',
+              'location',
+              'media',
+              'promotion',
+              'rating',
+              'recommendation',
+              'sampledata'
+            ],
+            ui: ['backoffice-bff', 'storefront-bff', 'backoffice-ui', 'storefront-ui']
+          ]
+
+          def selectedServices = []
+          if (params.RELEASE_GROUP == 'all') {
+            selectedServices.addAll(groups.core)
+            selectedServices.addAll(groups.apps)
+            selectedServices.addAll(groups.ui)
+          } else {
+            selectedServices = groups[params.RELEASE_GROUP]
+          }
+
+          if (!selectedServices) {
+            error "Unsupported RELEASE_GROUP: ${params.RELEASE_GROUP}"
+          }
+
+          env.RELEASE_SERVICES = selectedServices.join(',')
+          echo "Services to release sequentially: ${env.RELEASE_SERVICES}"
+        }
+      }
+    }
+
+    stage('Login Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.DOCKERHUB_CREDENTIALS,
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            set -eu
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+          '''
+        }
+      }
+    }
+
+    stage('Build And Push Images Sequentially') {
+      steps {
+        script {
+          def serviceMap = [
+            'backoffice-ui': [type: 'node', sourceDir: 'backoffice', imageName: 'backoffice'],
+            'storefront-ui': [type: 'node', sourceDir: 'storefront', imageName: 'storefront']
+          ]
+
+          [
+            'backoffice-bff',
+            'cart',
+            'customer',
+            'inventory',
+            'location',
+            'media',
+            'order',
+            'product',
+            'promotion',
+            'rating',
+            'recommendation',
+            'sampledata',
+            'storefront-bff'
+          ].each { service ->
+            serviceMap[service] = [type: 'java', sourceDir: service, imageName: service]
+          }
+
+          env.RELEASE_SERVICES.split(',').each { service ->
+            def cfg = serviceMap[service]
+            if (!cfg) {
+              error "Unsupported service in release group: ${service}"
+            }
+
+            def imageRepository = "${env.DOCKERHUB_USERNAME}/yas-${cfg.imageName}"
+            def fullImage = "${imageRepository}:${env.RELEASE_VERSION}"
+
+            echo "Releasing ${service} -> ${fullImage}"
+
+            if (cfg.type == 'java') {
+              def testFlag = params.RUN_TESTS ? '' : '-DskipTests'
+              sh """
+                set -eu
+                mvn -B -pl '${cfg.sourceDir}' -am clean package ${testFlag}
+                docker build -t '${fullImage}' '${cfg.sourceDir}'
+                docker push '${fullImage}'
+                docker rmi '${fullImage}' || true
+              """
+            } else {
+              sh """
+                set -eu
+                docker build -t '${fullImage}' '${cfg.sourceDir}'
+                docker push '${fullImage}'
+                docker rmi '${fullImage}' || true
+              """
+            }
+          }
+        }
+      }
+    }
+
+    stage('Update GitOps Staging Values') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.GITOPS_CREDENTIALS,
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh '''
+            set -eu
+            rm -rf gitops-staging-release
+
+            GITOPS_AUTH_URL="$(printf '%s' "$GITOPS_REPO_URL" | sed "s#https://#https://${GIT_USER}:${GIT_TOKEN}@#")"
+            git clone --branch "${GITOPS_BRANCH}" "$GITOPS_AUTH_URL" gitops-staging-release
+          '''
+
+          dir('gitops-staging-release') {
+            script {
+              def imageNames = [
+                'backoffice-ui': 'backoffice',
+                'storefront-ui': 'storefront'
+              ]
+
+              [
+                'backoffice-bff',
+                'cart',
+                'customer',
+                'inventory',
+                'location',
+                'media',
+                'order',
+                'product',
+                'promotion',
+                'rating',
+                'recommendation',
+                'sampledata',
+                'storefront-bff'
+              ].each { service ->
+                imageNames[service] = service
+              }
+
+              env.RELEASE_SERVICES.split(',').each { service ->
+                def imageRepository = "${env.DOCKERHUB_USERNAME}/yas-${imageNames[service]}"
+                def valuesFile = "${env.GITOPS_VALUES_DIR}/${service}.yaml"
+
+                sh """
+                  set -eu
+                  if [ ! -f '${valuesFile}' ]; then
+                    echo 'Missing GitOps values file: ${valuesFile}'
+                    exit 1
+                  fi
+
+                  sed -i -E 's#^([[:space:]]*repository:[[:space:]]*).*#\\1${imageRepository}#' '${valuesFile}'
+                  sed -i -E 's#^([[:space:]]*tag:[[:space:]]*).*#\\1${env.RELEASE_VERSION}#' '${valuesFile}'
+                """
+              }
+            }
+
+            sh '''
+              set -eu
+              git config user.name "jenkins-staging-release"
+              git config user.email "jenkins-staging-release@local"
+
+              git diff -- "$GITOPS_VALUES_DIR"
+              git add "$GITOPS_VALUES_DIR"
+
+              if git diff --cached --quiet; then
+                echo "No GitOps staging change to commit."
+              else
+                git commit -m "staging: release ${RELEASE_SERVICES} ${RELEASE_VERSION}"
+                git push origin "${GITOPS_BRANCH}"
+              fi
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Wait For ArgoCD Auto Sync') {
+      steps {
+        echo "GitOps staging release pushed. ArgoCD staging apps (${env.ARGOCD_APPS}) are configured with automated sync and will reconcile from Git."
+        echo "Verify manually with: kubectl get applications -n argocd"
+        echo "Verify image with: kubectl get deploy <service> -n yas-staging -o jsonpath='{.spec.template.spec.containers[*].image}'"
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'docker logout || true'
+      cleanWs deleteDirs: true, notFailBuild: true
+    }
+    success {
+      echo "Staging release finished. Group: ${params.RELEASE_GROUP}, services: ${env.RELEASE_SERVICES}, tag: ${env.RELEASE_VERSION}"
+    }
+    failure {
+      echo "Staging release failed. Check the failed stage above."
+    }
+  }
+}
