@@ -1,454 +1,304 @@
-# Observability cho YAS Project 02
+# Observability cho YAS
 
-Tài liệu này mô tả cách dùng Observability trong project YAS trên Kubernetes. Mục tiêu là deploy được stack Observability, truy cập Grafana, và dùng Grafana để quan sát logs, metrics, traces của các service YAS trong các namespace như `yas`, `yas-dev`, `yas-staging`.
+Tai lieu nay mo ta cach cai va dung observability toi gian cho YAS tren Kubernetes.
+Stack hien tai chi dung:
 
-## 1. Thành phần Observability
+- Prometheus: thu thap Kubernetes metrics va application metrics.
+- Grafana: xem dashboard va query Prometheus.
+- ServiceMonitor: khai bao backend service nao duoc Prometheus scrape.
 
-Stack hiện tại gồm:
+Khong cai Loki, Promtail, Tempo, OpenTelemetry trong phien ban toi gian nay. Neu can logs, dung `kubectl logs`. Neu can traces, co the bo sung sau.
+Neu truoc do da cai stack day du, `setup-observability.sh` se uninstall cac release cu trong namespace `observability`: `loki`, `tempo`, `opentelemetry-operator`, `opentelemetry-collector`, `promtail`, `grafana-operator`, va chart `grafana` rieng.
 
-- **Grafana**: giao diện chính để xem logs, metrics, traces, dashboard.
-- **Prometheus**: thu thập metrics từ Kubernetes và các service YAS.
-- **ServiceMonitor**: cấu hình để Prometheus biết scrape metrics từ service nào.
-- **Loki**: lưu trữ logs tập trung.
-- **Promtail**: đọc log từ pod/container và đẩy vào Loki.
-- **Tempo**: lưu distributed traces.
-- **OpenTelemetry Collector**: nhận traces từ ứng dụng YAS qua OTLP rồi gửi sang Tempo.
-
-Luồng dữ liệu:
+## 1. Luong metrics
 
 ```text
-Metrics:
-YAS service /actuator/prometheus
-  -> ServiceMonitor
+Kubernetes node/pod/deployment metrics
+  -> kube-prometheus-stack
   -> Prometheus
   -> Grafana
 
-Logs:
-Pod logs
-  -> Promtail
-  -> Loki
-  -> Grafana
-
-Traces:
-YAS service
-  -> OpenTelemetry Collector
-  -> Tempo
+YAS backend /actuator/prometheus
+  -> ServiceMonitor
+  -> Prometheus
   -> Grafana
 ```
 
-## 2. Cài đặt Observability
+## 2. Cai Prometheus va Grafana
 
-Chạy trên node/EC2 có Kubernetes context:
+Chay tren EC2/node co Kubernetes context:
 
 ```bash
-cd ~/yas-project2/k8s/deploy
+cd ~/yas-devops/k8s/deploy
+chmod +x setup-observability.sh
 ./setup-observability.sh
 ```
 
-Kiểm tra:
+Kiem tra:
 
 ```bash
-kubectl get pod -n observability
+kubectl get pods -n observability
 kubectl get svc -n observability
 kubectl get ingress -n observability
 ```
 
-Các pod quan trọng cần `Running`:
+Nhung workload quan trong can san sang:
 
 ```text
-prometheus-grafana
-prometheus-prometheus-kube-prometheus-prometheus-0
-loki
-promtail
-tempo-0
-opentelemetry-collector
+deployment/prometheus-grafana
+deployment/prometheus-kube-state-metrics
+statefulset/prometheus-prometheus-kube-prometheus-prometheus
+daemonset/prometheus-prometheus-node-exporter
 ```
 
-## 3. Bật metrics cho YAS bằng ServiceMonitor
+## 3. Truy cap Grafana
 
-Mặc định `deploy-yas-applications.sh` không tạo `ServiceMonitor`, để app có thể deploy ngay cả khi chưa cài Observability.
-
-Khi đã cài Observability và muốn Prometheus scrape metrics của YAS:
-
-```bash
-cd ~/yas-project2/k8s/deploy
-DISABLE_SERVICEMONITOR=false ./deploy-yas-applications.sh
-```
-
-Kiểm tra:
-
-```bash
-kubectl get servicemonitor -A
-```
-
-Nếu thấy `ServiceMonitor` trong namespace `yas`, Prometheus có thể scrape metrics từ các service đó.
-
-## 4. Dùng cho dev và staging
-
-Nếu muốn quan sát namespace `yas-dev` hoặc `yas-staging`, cần đảm bảo:
-
-1. App được deploy vào namespace tương ứng.
-2. Chart service có bật `ServiceMonitor`.
-3. Promtail đang scrape log namespace đó.
-4. Grafana query đúng namespace.
-
-Ví dụ kiểm tra:
-
-```bash
-kubectl get pod -n yas-dev
-kubectl get servicemonitor -n yas-dev
-
-kubectl get pod -n yas-staging
-kubectl get servicemonitor -n yas-staging
-```
-
-Trong `promtail.values.yaml`, Promtail đang giữ log từ các namespace:
-
-```text
-yas
-yas-dev
-yas-staging
-observability
-```
-
-Nếu thêm namespace mới, cần thêm namespace đó vào regex của Promtail rồi upgrade lại:
-
-```bash
-helm upgrade --install promtail grafana/promtail \
-  --create-namespace --namespace observability \
-  --values ./observability/promtail.values.yaml
-```
-
-## 5. Truy cập Grafana
-
-Nếu dùng Ingress/hosts:
+Neu dung ingress va file hosts:
 
 ```text
 http://grafana.yas.local.com
 ```
 
-Tài khoản mặc định:
+Tai khoan lay tu `cluster-config.yaml`:
 
 ```text
-admin / admin
+grafana.username
+grafana.password
 ```
 
-Nếu chưa dùng được domain, port-forward:
+Neu chua dung duoc domain, port-forward:
 
 ```bash
 kubectl port-forward -n observability svc/prometheus-grafana 3000:80
 ```
 
-Mở:
+Mo:
 
 ```text
 http://localhost:3000
 ```
 
-## 6. Test Loki logs
+Neu truy cap tu Windows qua EC2, co the tao SSH tunnel:
 
-Kiểm tra Loki từ trong Grafana pod:
+```powershell
+ssh -i E:\Devops-project-personal\devops.pem -L 3000:localhost:3000 ubuntu@13.215.243.80
+```
+
+Sau do tren EC2 chay port-forward o tren, va mo `http://localhost:3000` tren Windows.
+
+## 4. Bat metrics cho staging
+
+Prometheus tu dong co Kubernetes metrics cho namespace `yas-staging`, vi kube-state-metrics va node-exporter da nam trong kube-prometheus-stack.
+
+De co application metrics cua YAS backend, cac values staging trong GitOps can bat:
+
+```yaml
+serviceMonitor:
+  enabled: true
+```
+
+Nen bat cho cac backend chinh:
+
+```text
+product
+customer
+inventory
+cart
+order
+location
+media
+promotion
+rating
+recommendation
+sampledata
+backoffice-bff
+storefront-bff
+```
+
+Sau khi commit/push GitOps, ArgoCD se sync va tao ServiceMonitor trong namespace `yas-staging`.
+
+Kiem tra:
 
 ```bash
-kubectl exec -n observability deploy/prometheus-grafana -- wget -qO- \
-  http://loki-gateway.observability.svc.cluster.local/loki/api/v1/labels
+kubectl get servicemonitor -n yas-staging
+kubectl get endpoints -n yas-staging
 ```
 
-Nếu trả JSON có các label như `namespace`, `pod`, `container`, nghĩa là Loki hoạt động.
+## 5. Kiem tra Prometheus target
 
-Trong Grafana:
-
-```text
-Explore -> Loki
-```
-
-Query rộng:
-
-```logql
-{namespace=~".+"}
-```
-
-Query YAS:
-
-```logql
-{namespace="yas"}
-```
-
-Query dev:
-
-```logql
-{namespace="yas-dev"}
-```
-
-Query staging:
-
-```logql
-{namespace="yas-staging"}
-```
-
-Query log lỗi:
-
-```logql
-{namespace="yas"} |= "error"
-```
-
-Query theo container:
-
-```logql
-{namespace="yas", container="product"}
-```
-
-## 7. Test Prometheus metrics
-
-Trong Grafana:
-
-```text
-Explore -> Prometheus
-```
-
-Query cơ bản:
-
-```promql
-up
-```
-
-Query YAS:
-
-```promql
-up{namespace="yas"}
-```
-
-Query dev/staging:
-
-```promql
-up{namespace="yas-dev"}
-up{namespace="yas-staging"}
-```
-
-Tìm metrics HTTP:
-
-```promql
-{__name__=~".*http.*", namespace="yas"}
-```
-
-Kiểm tra target trực tiếp trong Prometheus:
+Port-forward Prometheus:
 
 ```bash
 kubectl port-forward -n observability svc/prometheus-kube-prometheus-prometheus 9090:9090
 ```
 
-Mở:
+Mo:
 
 ```text
 http://localhost:9090/targets
 ```
 
-Target namespace `yas` nên ở trạng thái `UP`.
+Tim cac target namespace `yas-staging`. Neu target `UP`, Prometheus da scrape duoc metrics.
 
-## 8. Test Tempo traces
+## 6. Query staging trong Grafana
 
-YAS được cấu hình gửi trace tới:
-
-```text
-http://opentelemetry-collector.observability:4318/v1/traces
-```
-
-Tạo request thử:
-
-```bash
-kubectl run curl-test -n yas --rm -it --image=curlimages/curl -- sh
-```
-
-Trong pod:
-
-```sh
-curl http://product:8090/actuator/health
-curl http://cart:8090/actuator/health
-curl http://customer:8090/actuator/health
-exit
-```
-
-Kiểm tra collector:
-
-```bash
-kubectl logs -n observability deploy/opentelemetry-collector --tail=100
-```
-
-Trong Grafana:
+Vao Grafana:
 
 ```text
-Explore -> Tempo
+Explore -> Prometheus
 ```
 
-Tìm trace gần đây theo service hoặc thời gian.
-
-## 9. Các tiện ích thực tế hay dùng
-
-### Xem service lỗi nhiều
-
-Prometheus:
+Kiem tra target backend:
 
 ```promql
-sum(rate(http_server_requests_seconds_count{status=~"5..", namespace="yas"}[5m])) by (application)
+up{namespace="yas-staging"}
 ```
 
-### Xem request rate
+CPU pod staging:
 
 ```promql
-sum(rate(http_server_requests_seconds_count{namespace="yas"}[5m])) by (application)
+sum(rate(container_cpu_usage_seconds_total{namespace="yas-staging", container!="", image!=""}[5m])) by (pod)
 ```
 
-### Xem logs lỗi trong 1 namespace
+Memory pod staging:
 
-Loki:
-
-```logql
-{namespace="yas"} |= "ERROR"
+```promql
+sum(container_memory_working_set_bytes{namespace="yas-staging", container!="", image!=""}) by (pod)
 ```
 
-Hoặc:
+Pod restart:
 
-```logql
-{namespace="yas"} |~ "(?i)error|exception|failed"
+```promql
+sum(kube_pod_container_status_restarts_total{namespace="yas-staging"}) by (pod)
 ```
 
-### Xem log theo pod
+Deployment replicas:
 
-```logql
-{namespace="yas", pod=~"product.*"}
+```promql
+kube_deployment_status_replicas_available{namespace="yas-staging"}
 ```
 
-### Debug pod restart
+Application request rate, neu Spring actuator metrics co san:
+
+```promql
+sum(rate(http_server_requests_seconds_count{namespace="yas-staging"}[5m])) by (application)
+```
+
+HTTP 5xx rate:
+
+```promql
+sum(rate(http_server_requests_seconds_count{namespace="yas-staging", status=~"5.."}[5m])) by (application)
+```
+
+Latency trung binh:
+
+```promql
+sum(rate(http_server_requests_seconds_sum{namespace="yas-staging"}[5m])) by (application)
+/
+sum(rate(http_server_requests_seconds_count{namespace="yas-staging"}[5m])) by (application)
+```
+
+Neu query HTTP khong co data, kiem tra:
 
 ```bash
-kubectl get pod -n yas
-kubectl describe pod -n yas <pod-name>
-kubectl logs -n yas <pod-name> --previous
+kubectl get servicemonitor -n yas-staging
+kubectl describe servicemonitor -n yas-staging <service-name>
+kubectl port-forward -n yas-staging svc/product 8090:8090
+curl http://localhost:8090/actuator/prometheus
 ```
 
-Sau đó đối chiếu log trong Grafana Loki theo `pod`.
+## 7. Dashboard nen co de demo
 
-### Kiểm tra health actuator
+Trong Grafana, dung dashboard mac dinh cua kube-prometheus-stack de demo Kubernetes:
 
-Actuator chạy ở port `8090`:
+- Kubernetes / Compute Resources / Namespace / Pods
+- Kubernetes / Compute Resources / Node
+- Kubernetes / Networking / Namespace
 
-```bash
-kubectl run curl-test -n yas --rm -it --image=curlimages/curl -- sh
-```
+Tao them dashboard rieng cho YAS Staging voi cac panel:
 
-Trong pod:
+- Pods CPU by pod
+- Pods memory by pod
+- Pod restart count
+- Deployment available replicas
+- Backend target up/down
+- HTTP request rate
+- HTTP 5xx rate
+- Average latency
 
-```sh
-curl http://product:8090/actuator/health
-curl http://product:8090/actuator/prometheus | head
-exit
-```
-
-## 10. Troubleshooting
-
-### Loki không resolve được
-
-Kiểm tra service:
-
-```bash
-kubectl get svc -n observability | grep loki
-```
-
-Test từ Grafana:
-
-```bash
-kubectl exec -n observability deploy/prometheus-grafana -- nslookup loki-gateway.observability.svc.cluster.local
-```
-
-### Promtail lỗi too many open files
-
-Tăng limit trên node:
-
-```bash
-sudo sysctl -w fs.file-max=2097152
-sudo sysctl -w fs.inotify.max_user_watches=1048576
-sudo sysctl -w fs.inotify.max_user_instances=1024
-sudo sysctl -w fs.inotify.max_queued_events=32768
-```
-
-Sau đó restart Promtail:
-
-```bash
-kubectl delete pod -n observability -l app.kubernetes.io/name=promtail
-```
-
-### Grafana Loki query No data
-
-Thử query rộng:
-
-```logql
-{namespace=~".+"}
-```
-
-Tăng time range lên:
+Tat ca panel nen filter namespace:
 
 ```text
-Last 1 hour
-Last 6 hours
+yas-staging
 ```
 
-Kiểm tra Promtail:
+## 8. Cach theo doi staging khi release
+
+Truoc khi chay Jenkins staging release:
 
 ```bash
-kubectl logs -n observability daemonset/promtail --tail=100
+kubectl get pods -n yas-staging
+kubectl get applications -n argocd
+kubectl get servicemonitor -n yas-staging
 ```
 
-### Prometheus không thấy app
+Trong luc release:
 
-Kiểm tra ServiceMonitor:
+```bash
+kubectl get pods -n yas-staging -w
+```
+
+Trong Grafana theo doi:
+
+- CPU/memory pod co tang bat thuong khong.
+- Pod restart co tang khong.
+- Deployment available replicas co ve 0 khong.
+- `up{namespace="yas-staging"}` co target nao down khong.
+- HTTP 5xx rate co tang khong.
+
+Neu service loi, dung metrics de khoanh vung truoc:
+
+```promql
+sum(kube_pod_container_status_restarts_total{namespace="yas-staging"}) by (pod)
+```
+
+Sau do moi xem log truc tiep:
+
+```bash
+kubectl logs -n yas-staging <pod-name> --tail=100
+kubectl describe pod -n yas-staging <pod-name>
+```
+
+## 9. Troubleshooting
+
+Prometheus khong thay ServiceMonitor:
 
 ```bash
 kubectl get servicemonitor -A
+kubectl get prometheus -n observability
 ```
 
-Nếu chưa có, redeploy app:
+Prometheus target DOWN:
 
 ```bash
-DISABLE_SERVICEMONITOR=false ./deploy-yas-applications.sh
+kubectl describe servicemonitor -n yas-staging <service-name>
+kubectl get svc -n yas-staging <service-name> -o yaml
+kubectl get endpoints -n yas-staging <service-name>
 ```
 
-### Sau khi stop/start EC2
-
-Kiểm tra cluster:
+Grafana khong truy cap duoc:
 
 ```bash
-kubectl get nodes
-kubectl get pod -A
+kubectl get pods -n observability
+kubectl get svc -n observability prometheus-grafana
+kubectl port-forward -n observability svc/prometheus-grafana 3000:80
 ```
 
-Nếu dùng Minikube:
+Khong co HTTP metrics:
 
 ```bash
-minikube status
-minikube start
+kubectl port-forward -n yas-staging svc/product 8090:8090
+curl http://localhost:8090/actuator/prometheus | head
 ```
 
-Kiểm tra Observability:
-
-```bash
-kubectl get pod -n observability
-```
-
-## 11. Checklist demo
-
-Trước khi demo, chụp hoặc kiểm tra:
-
-```bash
-kubectl get pod -n observability
-kubectl get pod -n yas
-kubectl get servicemonitor -A
-```
-
-Trong Grafana:
-
-- Loki query: `{namespace="yas"}`
-- Prometheus query: `up{namespace="yas"}`
-- Tempo datasource connected hoặc có trace gần đây
-- Dashboard metrics load được
-
-Nếu các mục trên chạy được, phần Observability đạt yêu cầu deploy và truy cập được.
+Neu endpoint `/actuator/prometheus` khong tra metrics, can kiem tra cau hinh Spring actuator cua service do.
