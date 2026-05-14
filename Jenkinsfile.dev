@@ -37,12 +37,19 @@ pipeline {
       steps {
         script {
           def serviceConfig = [
+            'backoffice-bff': [dir: 'backoffice-bff'],
             'cart'          : [dir: 'cart'],
             'customer'      : [dir: 'customer'],
+            'inventory'     : [dir: 'inventory'],
+            'media'         : [dir: 'media'],
+            'order'         : [dir: 'order'],
             'product'       : [dir: 'product'],
-            'tax'           : [dir: 'tax'],
+            'promotion'     : [dir: 'promotion'],
+            'recommendation': [dir: 'recommendation'],
+            'sampledata'    : [dir: 'sampledata'],
             'storefront-bff': [dir: 'storefront-bff'],
-            'storefront-ui' : [dir: 'storefront']
+            'storefront-ui' : [dir: 'storefront'],
+            'tax'           : [dir: 'tax']
           ]
 
           def baseCommit = sh(
@@ -78,7 +85,20 @@ pipeline {
             }
 
             if (file == 'pom.xml' || file.startsWith('common-library/')) {
-              ['cart', 'customer', 'product', 'tax', 'storefront-bff'].each {
+              [
+                'backoffice-bff',
+                'cart',
+                'customer',
+                'inventory',
+                'media',
+                'order',
+                'product',
+                'promotion',
+                'recommendation',
+                'sampledata',
+                'storefront-bff',
+                'tax'
+              ].each {
                 changed.add(it)
               }
             }
@@ -129,12 +149,19 @@ pipeline {
       steps {
         script {
           def serviceConfig = [
+            'backoffice-bff': [dir: 'backoffice-bff', type: 'java', image: 'yas-backoffice-bff'],
             'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart'],
             'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer'],
+            'inventory'     : [dir: 'inventory',      type: 'java', image: 'yas-inventory'],
+            'media'         : [dir: 'media',          type: 'java', image: 'yas-media'],
+            'order'         : [dir: 'order',          type: 'java', image: 'yas-order'],
             'product'       : [dir: 'product',        type: 'java', image: 'yas-product'],
-            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax'],
+            'promotion'     : [dir: 'promotion',      type: 'java', image: 'yas-promotion'],
+            'recommendation': [dir: 'recommendation', type: 'java', image: 'yas-recommendation'],
+            'sampledata'    : [dir: 'sampledata',     type: 'java', image: 'yas-sampledata'],
             'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff'],
-            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront']
+            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront'],
+            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax']
           ]
 
           env.CHANGED_SERVICES.split(',').each { svc ->
@@ -188,12 +215,19 @@ pipeline {
         dir('gitops-repo') {
           script {
             def gitopsConfig = [
+              'backoffice-bff': [file: 'argocd/values/dev/backoffice-bff.yaml', root: '.backend.image', image: 'yas-backoffice-bff'],
               'cart'          : [file: 'argocd/values/dev/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
               'customer'      : [file: 'argocd/values/dev/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
+              'inventory'     : [file: 'argocd/values/dev/inventory.yaml',      root: '.backend.image', image: 'yas-inventory'],
+              'media'         : [file: 'argocd/values/dev/media.yaml',          root: '.backend.image', image: 'yas-media'],
+              'order'         : [file: 'argocd/values/dev/order.yaml',          root: '.backend.image', image: 'yas-order'],
               'product'       : [file: 'argocd/values/dev/product.yaml',        root: '.backend.image', image: 'yas-product'],
-              'tax'           : [file: 'argocd/values/dev/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
+              'promotion'     : [file: 'argocd/values/dev/promotion.yaml',      root: '.backend.image', image: 'yas-promotion'],
+              'recommendation': [file: 'argocd/values/dev/recommendation.yaml', root: '.backend.image', image: 'yas-recommendation'],
+              'sampledata'    : [file: 'argocd/values/dev/sampledata.yaml',     root: '.backend.image', image: 'yas-sampledata'],
               'storefront-bff': [file: 'argocd/values/dev/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
-              'storefront-ui' : [file: 'argocd/values/dev/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
+              'storefront-ui' : [file: 'argocd/values/dev/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront'],
+              'tax'           : [file: 'argocd/values/dev/tax.yaml',            root: '.backend.image', image: 'yas-tax']
             ]
 
             env.CHANGED_SERVICES.split(',').each { svc ->
