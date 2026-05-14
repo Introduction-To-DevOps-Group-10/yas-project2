@@ -36,7 +36,7 @@ pipeline {
     )
     string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Source branch to build, for example dev/cart.')
     string(name: 'PREVIEW_NAMESPACE', defaultValue: 'yas-preview', description: 'Preview namespace. The default ArgoCD app deploys to yas-preview.')
-    string(name: 'BASE_IMAGE_TAG', defaultValue: 'staging-latest', description: 'Stable image tag used by other preview services. This job only updates the selected service.')
+    string(name: 'BASE_IMAGE_TAG', defaultValue: 'latest', description: 'Stable image tag used by other preview services. This job only updates the selected service.')
   }
 
   environment {
