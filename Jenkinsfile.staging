@@ -15,15 +15,18 @@ pipeline {
   }
 
   environment {
+    JAVA_HOME = '/usr/lib/jvm/java-25-openjdk-amd64'
+    PATH = "${JAVA_HOME}/bin:${env.PATH}"
+
     DOCKERHUB_NAMESPACE = 'phucnotphuc'
     DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
 
-    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_CREDENTIALS = 'github-devops'
     GITOPS_REPO = 'github.com/Introduction-To-DevOps-Group-10/yas-gitops.git'
     GITOPS_BRANCH = 'main'
     GITOPS_VALUES_DIR = 'argocd/values/staging'
 
-    RELEASE_SERVICES = 'cart,customer,product,tax,storefront-bff,storefront-ui'
+    RELEASE_SERVICES = 'backoffice-bff,cart,customer,inventory,media,order,product,promotion,recommendation,sampledata,storefront-bff,storefront-ui,tax'
   }
 
   stages {
@@ -99,12 +102,19 @@ pipeline {
       steps {
         script {
           def serviceConfig = [
+            'backoffice-bff': [dir: 'backoffice-bff', type: 'java', image: 'yas-backoffice-bff'],
             'cart'          : [dir: 'cart',           type: 'java', image: 'yas-cart'],
             'customer'      : [dir: 'customer',       type: 'java', image: 'yas-customer'],
+            'inventory'     : [dir: 'inventory',      type: 'java', image: 'yas-inventory'],
+            'media'         : [dir: 'media',          type: 'java', image: 'yas-media'],
+            'order'         : [dir: 'order',          type: 'java', image: 'yas-order'],
             'product'       : [dir: 'product',        type: 'java', image: 'yas-product'],
-            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax'],
+            'promotion'     : [dir: 'promotion',      type: 'java', image: 'yas-promotion'],
+            'recommendation': [dir: 'recommendation', type: 'java', image: 'yas-recommendation'],
+            'sampledata'    : [dir: 'sampledata',     type: 'java', image: 'yas-sampledata'],
             'storefront-bff': [dir: 'storefront-bff', type: 'java', image: 'yas-storefront-bff'],
-            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront']
+            'storefront-ui' : [dir: 'storefront',     type: 'node', image: 'yas-storefront'],
+            'tax'           : [dir: 'tax',            type: 'java', image: 'yas-tax']
           ]
 
           env.RELEASE_SERVICES.split(',').each { svc ->
@@ -152,12 +162,19 @@ pipeline {
         dir('gitops-repo') {
           script {
             def gitopsConfig = [
+              'backoffice-bff': [file: 'argocd/values/staging/backoffice-bff.yaml', root: '.backend.image', image: 'yas-backoffice-bff'],
               'cart'          : [file: 'argocd/values/staging/cart.yaml',           root: '.backend.image', image: 'yas-cart'],
               'customer'      : [file: 'argocd/values/staging/customer.yaml',       root: '.backend.image', image: 'yas-customer'],
+              'inventory'     : [file: 'argocd/values/staging/inventory.yaml',      root: '.backend.image', image: 'yas-inventory'],
+              'media'         : [file: 'argocd/values/staging/media.yaml',          root: '.backend.image', image: 'yas-media'],
+              'order'         : [file: 'argocd/values/staging/order.yaml',          root: '.backend.image', image: 'yas-order'],
               'product'       : [file: 'argocd/values/staging/product.yaml',        root: '.backend.image', image: 'yas-product'],
-              'tax'           : [file: 'argocd/values/staging/tax.yaml',            root: '.backend.image', image: 'yas-tax'],
+              'promotion'     : [file: 'argocd/values/staging/promotion.yaml',      root: '.backend.image', image: 'yas-promotion'],
+              'recommendation': [file: 'argocd/values/staging/recommendation.yaml', root: '.backend.image', image: 'yas-recommendation'],
+              'sampledata'    : [file: 'argocd/values/staging/sampledata.yaml',     root: '.backend.image', image: 'yas-sampledata'],
               'storefront-bff': [file: 'argocd/values/staging/storefront-bff.yaml', root: '.backend.image', image: 'yas-storefront-bff'],
-              'storefront-ui' : [file: 'argocd/values/staging/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront']
+              'storefront-ui' : [file: 'argocd/values/staging/storefront-ui.yaml',  root: '.ui.image',      image: 'yas-storefront'],
+              'tax'           : [file: 'argocd/values/staging/tax.yaml',            root: '.backend.image', image: 'yas-tax']
             ]
 
             env.RELEASE_SERVICES.split(',').each { svc ->
