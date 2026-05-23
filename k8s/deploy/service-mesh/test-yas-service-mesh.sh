@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAMESPACE="${NAMESPACE:-yas}"
+NAMESPACE="${NAMESPACE:-yas-dev}"
 RUNNING_DEPLOYMENTS=(
   backoffice-bff
   cart
@@ -32,14 +32,14 @@ READINESS_SERVICES=(
 
 manifest_for() {
   local name="$1"
-  local namespaced="${SCRIPT_DIR}/${name}-${NAMESPACE}.yaml"
-  local yas_default="${SCRIPT_DIR}/${name}-yas.yaml"
+  local manifest="${SCRIPT_DIR}/${name}-yas-dev.yaml"
 
-  if [ -f "$namespaced" ]; then
-    echo "$namespaced"
-  else
-    echo "$yas_default"
+  if [ ! -f "$manifest" ]; then
+    echo "Missing manifest: $manifest" >&2
+    exit 1
   fi
+
+  echo "$manifest"
 }
 
 append_optional_deployments() {
@@ -158,6 +158,10 @@ test_authorization_policy() {
 }
 
 append_optional_deployments
+if [ "$NAMESPACE" != "yas-dev" ]; then
+  echo "This simplified service-mesh demo only supports NAMESPACE=yas-dev."
+  exit 1
+fi
 wait_for_rollouts
 show_status
 test_sidecars

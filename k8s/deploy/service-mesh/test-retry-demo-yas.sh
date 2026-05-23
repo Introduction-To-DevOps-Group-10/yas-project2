@@ -2,19 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAMESPACE="${NAMESPACE:-yas}"
+NAMESPACE="${NAMESPACE:-yas-dev}"
 COUNT="${COUNT:-30}"
 
 manifest_for() {
   local name="$1"
-  local namespaced="${SCRIPT_DIR}/${name}-${NAMESPACE}.yaml"
-  local yas_default="${SCRIPT_DIR}/${name}-yas.yaml"
+  local manifest="${SCRIPT_DIR}/${name}-yas-dev.yaml"
 
-  if [ -f "$namespaced" ]; then
-    echo "$namespaced"
-  else
-    echo "$yas_default"
+  if [ ! -f "$manifest" ]; then
+    echo "Missing manifest: $manifest" >&2
+    exit 1
   fi
+
+  echo "$manifest"
 }
 
 count_codes() {
@@ -39,6 +39,11 @@ run_requests() {
 curl_manifest="$(manifest_for curl-client-cart)"
 flaky_manifest="$(manifest_for retry-demo-flaky-app)"
 retry_manifest="$(manifest_for retry-demo-virtualservice)"
+
+if [ "$NAMESPACE" != "yas-dev" ]; then
+  echo "This simplified retry demo only supports NAMESPACE=yas-dev."
+  exit 1
+fi
 
 kubectl apply -f "$curl_manifest"
 kubectl wait pod/curl-client-cart -n "$NAMESPACE" --for=condition=Ready --timeout=180s

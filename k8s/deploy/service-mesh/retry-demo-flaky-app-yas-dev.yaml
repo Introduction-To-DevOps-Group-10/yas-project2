@@ -8,6 +8,8 @@ metadata:
     version: good
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: flaky
@@ -18,7 +20,7 @@ spec:
         app: flaky
         version: good
       annotations:
-        sidecar.istio.io/proxyCPU: 10m
+        sidecar.istio.io/proxyCPU: 1m
         sidecar.istio.io/proxyMemory: 32Mi
         sidecar.istio.io/proxyCPULimit: 250m
         sidecar.istio.io/proxyMemoryLimit: 256Mi
@@ -52,6 +54,8 @@ metadata:
     version: bad
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: flaky
@@ -62,7 +66,7 @@ spec:
         app: flaky
         version: bad
       annotations:
-        sidecar.istio.io/proxyCPU: 10m
+        sidecar.istio.io/proxyCPU: 1m
         sidecar.istio.io/proxyMemory: 32Mi
         sidecar.istio.io/proxyCPULimit: 250m
         sidecar.istio.io/proxyMemoryLimit: 256Mi

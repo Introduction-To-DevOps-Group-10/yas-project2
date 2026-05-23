@@ -2,22 +2,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAMESPACE="${NAMESPACE:-service-mesh}"
-CHART_ROOT="${SCRIPT_DIR}/../../charts"
+NAMESPACE="${NAMESPACE:-yas-dev}"
 
-kubectl apply -f "${SCRIPT_DIR}/mesh-core.yaml"
+if [ "$NAMESPACE" != "yas-dev" ]; then
+  echo "This simplified service-mesh demo only supports NAMESPACE=yas-dev."
+  exit 1
+fi
 
-helm upgrade --install yas-configuration-sm "${CHART_ROOT}/yas-configuration" \
-  --namespace "$NAMESPACE" \
-  --create-namespace \
-  --wait
+kubectl label namespace "$NAMESPACE" istio-injection=enabled --overwrite
 
-kubectl apply -f "${SCRIPT_DIR}/service-mesh-apps.yaml"
-kubectl apply -f "${SCRIPT_DIR}/product-retry.yaml"
+kubectl apply -f "${SCRIPT_DIR}/yas-dev-mesh-core.yaml"
+kubectl apply -f "${SCRIPT_DIR}/product-retry-yas-dev.yaml"
+kubectl apply -f "${SCRIPT_DIR}/curl-client-cart-yas-dev.yaml"
 
-for deployment in cart customer order product; do
+for deployment in \
+  backoffice-bff cart customer inventory media order product promotion \
+  recommendation sampledata storefront-bff storefront-ui tax yas-reloader
+do
   kubectl rollout status "deployment/${deployment}" -n "$NAMESPACE" --timeout=300s
 done
 
-echo "YAS service mesh lab applied to namespace ${NAMESPACE}."
-echo "Run ./test-service-mesh.sh to verify sidecars, mTLS and demo traffic."
+kubectl wait pod/curl-client-cart -n "$NAMESPACE" --for=condition=Ready --timeout=180s
+
+echo "YAS service mesh demo applied to namespace ${NAMESPACE}."
+echo "Run: NAMESPACE=${NAMESPACE} ./test-yas-service-mesh.sh"

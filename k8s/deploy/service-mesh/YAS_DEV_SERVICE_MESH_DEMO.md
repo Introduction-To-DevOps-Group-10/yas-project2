@@ -16,6 +16,77 @@ Khi demo, can chung minh du 4 y:
 - Kiali hien duoc topology/flow cua service.
 - Co test retry va authorization policy bang `curl`.
 
+## 1.1. Ket qua demo da verify
+
+Lan demo thu tren `yas-dev` da pass cac diem chinh sau:
+
+```text
+istiod              1/1 Running
+kiali               1/1 Running
+prometheus-server   2/2 Running
+```
+
+Namespace:
+
+```text
+yas-dev   Active   istio-injection=enabled
+```
+
+Mesh config:
+
+```text
+peerauthentication.security.istio.io/default   STRICT
+destinationrule.networking.istio.io/cart-mtls
+destinationrule.networking.istio.io/customer-mtls
+destinationrule.networking.istio.io/order-mtls
+destinationrule.networking.istio.io/product-mtls
+destinationrule.networking.istio.io/tax-mtls
+virtualservice.networking.istio.io/product-retry
+```
+
+Readiness tu pod trong mesh:
+
+```text
+backoffice-bff readiness: 200
+cart readiness: 200
+customer readiness: 200
+inventory readiness: 200
+media readiness: 200
+order readiness: 200
+product readiness: 200
+promotion readiness: 200
+recommendation readiness: 200
+sampledata readiness: 200
+storefront-bff readiness: 200
+tax readiness: 200
+```
+
+mTLS STRICT chan request tu pod ngoai mesh:
+
+```text
+curl: (56) Recv failure: Connection reset by peer
+```
+
+Retry baseline:
+
+```text
+product retry baseline 1: 200
+product retry baseline 2: 200
+product retry baseline 3: 200
+product retry baseline 4: 200
+product retry baseline 5: 200
+```
+
+AuthorizationPolicy demo:
+
+```text
+cart -> product: 200
+order -> product: 403
+```
+
+Sau khi demo authorization, policy `product-cart-only` da duoc xoa lai de khong
+anh huong flow dev.
+
 ## 2. Kiem tra control plane Istio
 
 Lenh:
@@ -266,19 +337,14 @@ Apply va chay test:
 NAMESPACE=yas-dev k8s/deploy/service-mesh/test-retry-demo-yas.sh
 ```
 
-Script se tu chon dung cac manifest `*-yas-dev.yaml` khi `NAMESPACE=yas-dev`.
-Neu muon chay cho namespace `yas`, dung:
-
-```bash
-NAMESPACE=yas k8s/deploy/service-mesh/test-retry-demo-yas.sh
-```
+Script nay da duoc rut gon cho demo `yas-dev`, nen chi dung cac manifest `*-yas-dev.yaml`.
 
 Expected output truoc retry:
 
 ```text
 --- Summary before retry ---
-200: <mot so request>
-500: <mot so request>
+200: 12
+500: 18
 ```
 
 Expected output sau retry:
@@ -293,6 +359,7 @@ Giai thich:
 - Demo tao service `flaky` co endpoint `good` tra `200` va endpoint `bad` tra `500`.
 - Truoc retry, request bi load balance vao ca endpoint loi nen co `500`.
 - Sau retry, Envoy gap `500` se thu lai toi endpoint khac, nen ty le `200` tang manh.
+- Manifest demo flaky dung CPU request rat nho va `strategy: Recreate` de tranh ket node minikube khi YAS dang chay day du.
 
 Don resource demo sau khi chup output:
 
@@ -383,6 +450,13 @@ Port-forward Kiali:
 kubectl -n istio-system port-forward svc/kiali 20001:20001
 ```
 
+Expected terminal output:
+
+```text
+Forwarding from 127.0.0.1:20001 -> 20001
+Forwarding from [::1]:20001 -> 20001
+```
+
 Mo tren browser:
 
 ```text
@@ -400,6 +474,28 @@ Sau do van mo:
 ```text
 http://localhost:20001/kiali/
 ```
+
+Neu Kiali mo duoc nhung Graph bao `Metrics are disabled`, kiem tra Kiali status:
+
+```bash
+curl -sS http://127.0.0.1:20001/kiali/api/status
+```
+
+Expected trong JSON:
+
+```text
+"name": "Prometheus"
+"version": "3.11.3"
+```
+
+Neu chua thay Prometheus, restart Kiali sau khi Prometheus da Ready:
+
+```bash
+kubectl rollout restart deployment/kiali -n istio-system
+kubectl rollout status deployment/kiali -n istio-system --timeout=180s
+```
+
+Sau do mo lai port-forward.
 
 Trong Kiali:
 
@@ -435,6 +531,29 @@ Can chup screenshot:
 - Thay cac node service: `cart`, `customer`, `order`, `product`, `tax`.
 - Thay cac edge request tu curl client toi cac service.
 - Neu Kiali hien icon khoa/mTLS, chi ra traffic dang secure.
+
+Expected tren Kiali:
+
+```text
+Namespace: yas-dev
+Graph type: Versioned app graph hoac Service graph
+Time range: Last 5m hoac Last 10m
+Nodes: curl-client-cart, cart, customer, order, product, tax
+Edges: curl-client-cart -> cart/customer/order/product/tax
+```
+
+Neu Kiali hien thong ke kieu:
+
+```text
+11 apps
+11 versions
+3 services
+12 edges
+```
+
+thi van hop le. `apps`/`versions` la workload nodes; `services` la so Kubernetes
+Service nodes ma Kiali render trong graph mode hien tai, khong phai tong so
+microservice dang chay.
 
 ## 13. Checklist lay diem
 
