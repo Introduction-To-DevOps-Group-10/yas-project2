@@ -1,0 +1,150 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    skipDefaultCheckout(false)
+  }
+
+  parameters {
+    choice(
+      name: 'SERVICE_NAME',
+      choices: [
+        'backoffice-bff',
+        'backoffice-ui',
+        'storefront-bff',
+        'storefront-ui',
+        'cart',
+        'customer',
+        'inventory',
+        'location',
+        'media',
+        'order',
+        'product',
+        'promotion',
+        'rating',
+        'recommendation',
+        'sampledata'
+      ],
+      description: 'Preview service to reset to the stable base image tag.'
+    )
+    string(name: 'PREVIEW_NAMESPACE', defaultValue: 'yas-preview', description: 'Preview namespace managed by ArgoCD.')
+    string(name: 'BASE_IMAGE_TAG', defaultValue: 'latest', description: 'Stable image tag to restore for the selected preview service.')
+  }
+
+  environment {
+    DOCKERHUB_USERNAME = 'tunas106'
+
+    GITOPS_REPO_URL = 'https://github.com/TUNAS106/gitops.git'
+    GITOPS_BRANCH = 'main'
+    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_VALUES_DIR = 'argocd/values/preview'
+
+    ARGOCD_APPS = 'yas-preview-core, yas-preview-apps, yas-preview-ui'
+  }
+
+  stages {
+    stage('Resolve Service') {
+      steps {
+        script {
+          def serviceMap = [
+            'backoffice-ui': [imageName: 'backoffice'],
+            'storefront-ui': [imageName: 'storefront']
+          ]
+
+          [
+            'backoffice-bff',
+            'cart',
+            'customer',
+            'inventory',
+            'location',
+            'media',
+            'order',
+            'product',
+            'promotion',
+            'rating',
+            'recommendation',
+            'sampledata',
+            'storefront-bff'
+          ].each { service ->
+            serviceMap[service] = [imageName: service]
+          }
+
+          def selected = serviceMap[params.SERVICE_NAME]
+          if (!selected) {
+            error "Unsupported SERVICE_NAME: ${params.SERVICE_NAME}"
+          }
+
+          env.IMAGE_NAME = selected.imageName
+          env.IMAGE_REPOSITORY = "${env.DOCKERHUB_USERNAME}/yas-${env.IMAGE_NAME}"
+          env.RESET_IMAGE = "${env.IMAGE_REPOSITORY}:${params.BASE_IMAGE_TAG}"
+
+          echo "Resetting ${params.SERVICE_NAME} in ${params.PREVIEW_NAMESPACE} to ${env.RESET_IMAGE}"
+        }
+      }
+    }
+
+    stage('Update GitOps Preview Values') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.GITOPS_CREDENTIALS,
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh '''
+            set -eu
+            rm -rf gitops-preview-cleanup
+
+            GITOPS_AUTH_URL="$(printf '%s' "$GITOPS_REPO_URL" | sed "s#https://#https://${GIT_USER}:${GIT_TOKEN}@#")"
+            git clone --branch "${GITOPS_BRANCH}" "$GITOPS_AUTH_URL" gitops-preview-cleanup
+
+            cd gitops-preview-cleanup
+            VALUES_FILE="${GITOPS_VALUES_DIR}/${SERVICE_NAME}.yaml"
+
+            if [ ! -f "$VALUES_FILE" ]; then
+              echo "Missing GitOps values file: $VALUES_FILE"
+              exit 1
+            fi
+
+            sed -i -E "s#^([[:space:]]*repository:[[:space:]]*).*#\\1${IMAGE_REPOSITORY}#" "$VALUES_FILE"
+            sed -i -E "s#^([[:space:]]*tag:[[:space:]]*).*#\\1${BASE_IMAGE_TAG}#" "$VALUES_FILE"
+
+            git config user.name "jenkins-preview-cleanup"
+            git config user.email "jenkins-preview-cleanup@local"
+
+            git diff -- "$VALUES_FILE"
+            git add "$VALUES_FILE"
+
+            if git diff --cached --quiet; then
+              echo "No GitOps cleanup change to commit."
+            else
+              git commit -m "preview: reset ${SERVICE_NAME} to ${BASE_IMAGE_TAG}"
+              git push origin "${GITOPS_BRANCH}"
+            fi
+          '''
+        }
+      }
+    }
+
+    stage('Wait For ArgoCD Auto Sync') {
+      steps {
+        echo "GitOps cleanup change pushed. ArgoCD preview apps (${env.ARGOCD_APPS}) are configured with automated sync and will reconcile from Git."
+        echo "Verify manually with: argocd app get yas-preview-core && argocd app get yas-preview-apps && argocd app get yas-preview-ui"
+        echo "Verify Kubernetes image with: kubectl get deploy ${params.SERVICE_NAME} -n ${params.PREVIEW_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[*].image}'"
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs deleteDirs: true, notFailBuild: true
+    }
+    success {
+      echo "Preview cleanup finished: ${params.SERVICE_NAME} -> ${env.RESET_IMAGE}"
+    }
+    failure {
+      echo "Preview cleanup failed. Check the failed stage above."
+    }
+  }
+}

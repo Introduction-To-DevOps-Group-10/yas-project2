@@ -1,0 +1,231 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    skipDefaultCheckout(false)
+  }
+
+  parameters {
+    choice(
+      name: 'SERVICE_NAME',
+      choices: [
+        'backoffice-bff',
+        'backoffice-ui',
+        'storefront-bff',
+        'storefront-ui',
+        'cart',
+        'customer',
+        'inventory',
+        'location',
+        'media',
+        'order',
+        'product',
+        'promotion',
+        'rating',
+        'recommendation',
+        'sampledata'
+      ],
+      description: 'Service to build and deploy to preview.'
+    )
+    string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Source branch to build, for example dev/cart.')
+    string(name: 'PREVIEW_NAMESPACE', defaultValue: 'yas-preview', description: 'Preview namespace. The default ArgoCD app deploys to yas-preview.')
+    string(name: 'BASE_IMAGE_TAG', defaultValue: 'latest', description: 'Stable image tag used by other preview services. This job only updates the selected service.')
+  }
+
+  environment {
+    DOCKERHUB_USERNAME = 'tunas106'
+    DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
+
+    GITOPS_REPO_URL = 'https://github.com/TUNAS106/gitops.git'
+    GITOPS_BRANCH = 'main'
+    GITOPS_CREDENTIALS = 'github-token'
+    GITOPS_VALUES_DIR = 'argocd/values/preview'
+
+    ARGOCD_APPS = 'yas-preview-core, yas-preview-apps, yas-preview-ui'
+  }
+
+  stages {
+    stage('Checkout Branch') {
+      steps {
+        checkout scm
+        sh '''
+          set -eu
+          git fetch origin "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}" --prune
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+          git rev-parse --short=7 HEAD > .short-commit
+        '''
+        script {
+          env.SHORT_COMMIT = readFile('.short-commit').trim()
+          env.SAFE_BRANCH = params.BRANCH_NAME
+            .trim()
+            .replaceAll('[^A-Za-z0-9_.-]+', '-')
+            .replaceAll('^-+|-+$', '')
+            .toLowerCase()
+          env.IMAGE_TAG = "${env.SAFE_BRANCH}-${env.SHORT_COMMIT}"
+          echo "Building ${params.SERVICE_NAME} from ${params.BRANCH_NAME} with image tag ${env.IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('Resolve Service') {
+      steps {
+        script {
+          def javaServices = [
+            'backoffice-bff',
+            'cart',
+            'customer',
+            'inventory',
+            'location',
+            'media',
+            'order',
+            'payment',
+            'payment-paypal',
+            'product',
+            'promotion',
+            'rating',
+            'recommendation',
+            'sampledata',
+            'search',
+            'storefront-bff',
+            'tax',
+            'webhook'
+          ]
+
+          def serviceMap = [
+            'backoffice-ui': [type: 'node', sourceDir: 'backoffice', imageName: 'backoffice'],
+            'storefront-ui': [type: 'node', sourceDir: 'storefront', imageName: 'storefront']
+          ]
+
+          javaServices.each { service ->
+            serviceMap[service] = [type: 'java', sourceDir: service, imageName: service]
+          }
+
+          def selected = serviceMap[params.SERVICE_NAME]
+          if (!selected) {
+            error "Unsupported SERVICE_NAME: ${params.SERVICE_NAME}"
+          }
+
+          env.SERVICE_TYPE = selected.type
+          env.SOURCE_DIR = selected.sourceDir
+          env.IMAGE_NAME = selected.imageName
+          env.IMAGE_REPOSITORY = "${env.DOCKERHUB_USERNAME}/yas-${env.IMAGE_NAME}"
+          env.FULL_IMAGE = "${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+
+          echo "Source directory: ${env.SOURCE_DIR}"
+          echo "Docker image: ${env.FULL_IMAGE}"
+          echo "Preview namespace: ${params.PREVIEW_NAMESPACE}"
+          echo "Base image tag reference: ${params.BASE_IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('Build Service') {
+      steps {
+        script {
+          if (env.SERVICE_TYPE == 'java') {
+            sh '''
+              set -eu
+              mvn -B -pl "${SOURCE_DIR}" -am clean package -DskipTests
+              if [ "${SOURCE_DIR}" = "media" ]; then
+                docker build -f media/Dockerfile.sampledata -t "${FULL_IMAGE}" .
+              else
+                docker build -t "${FULL_IMAGE}" "${SOURCE_DIR}"
+              fi
+            '''
+          } else {
+            sh '''
+              set -eu
+              docker build -t "${FULL_IMAGE}" "${SOURCE_DIR}"
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Push Image') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.DOCKERHUB_CREDENTIALS,
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            set -eu
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push "${FULL_IMAGE}"
+          '''
+        }
+      }
+    }
+
+    stage('Update GitOps Preview Values') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: env.GITOPS_CREDENTIALS,
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_TOKEN'
+        )]) {
+          sh '''
+            set -eu
+            rm -rf gitops-preview
+
+            GITOPS_AUTH_URL="$(printf '%s' "$GITOPS_REPO_URL" | sed "s#https://#https://${GIT_USER}:${GIT_TOKEN}@#")"
+            git clone --branch "${GITOPS_BRANCH}" "$GITOPS_AUTH_URL" gitops-preview
+
+            cd gitops-preview
+            VALUES_FILE="${GITOPS_VALUES_DIR}/${SERVICE_NAME}.yaml"
+
+            if [ ! -f "$VALUES_FILE" ]; then
+              echo "Missing GitOps values file: $VALUES_FILE"
+              exit 1
+            fi
+
+            sed -i -E "s#^([[:space:]]*repository:[[:space:]]*).*#\\1${IMAGE_REPOSITORY}#" "$VALUES_FILE"
+            sed -i -E "s#^([[:space:]]*tag:[[:space:]]*).*#\\1${IMAGE_TAG}#" "$VALUES_FILE"
+
+            git config user.name "jenkins-preview-deploy"
+            git config user.email "jenkins-preview-deploy@local"
+
+            git diff -- "$VALUES_FILE"
+            git add "$VALUES_FILE"
+
+            if git diff --cached --quiet; then
+              echo "No GitOps change to commit."
+            else
+              git commit -m "preview: deploy ${SERVICE_NAME} ${IMAGE_TAG}"
+              git push origin "${GITOPS_BRANCH}"
+            fi
+          '''
+        }
+      }
+    }
+
+    stage('Wait For ArgoCD Auto Sync') {
+      steps {
+        echo "GitOps update pushed. ArgoCD preview apps (${env.ARGOCD_APPS}) are configured with automated sync and will reconcile the preview environment from Git."
+        echo "Verify manually with: argocd app get yas-preview-core && argocd app get yas-preview-apps && argocd app get yas-preview-ui"
+        echo "Verify Kubernetes image with: kubectl get deploy ${params.SERVICE_NAME} -n ${params.PREVIEW_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[*].image}'"
+      }
+    }
+  }
+
+  post {
+    always {
+      sh '''
+        docker logout || true
+        if [ -n "${FULL_IMAGE:-}" ]; then
+          docker rmi "${FULL_IMAGE}" || true
+        fi
+      '''
+      cleanWs deleteDirs: true, notFailBuild: true
+    }
+    success {
+      echo "Preview deploy finished: ${params.SERVICE_NAME} -> ${env.FULL_IMAGE}"
+    }
+    failure {
+      echo "Preview deploy failed. Check the failed stage above."
+    }
+  }
+}

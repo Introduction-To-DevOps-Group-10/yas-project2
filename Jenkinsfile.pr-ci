@@ -1,0 +1,259 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    skipDefaultCheckout(false)
+  }
+
+  environment {
+    SONARCLOUD_CREDENTIALS = 'sonarcloud-token'
+    RUN_SONAR = 'true'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        sh 'git fetch origin +refs/heads/*:refs/remotes/origin/* --prune || true'
+      }
+    }
+
+    stage('Detect Changed Modules') {
+      steps {
+        script {
+          def javaModules = [
+            'common-library',
+            'backoffice-bff',
+            'cart',
+            'customer',
+            'delivery',
+            'inventory',
+            'location',
+            'media',
+            'order',
+            'payment',
+            'payment-paypal',
+            'product',
+            'promotion',
+            'rating',
+            'recommendation',
+            'sampledata',
+            'search',
+            'storefront-bff',
+            'tax',
+            'webhook'
+          ]
+
+          def frontendModules = [
+            'backoffice': 'backoffice',
+            'storefront': 'storefront'
+          ]
+
+          def targetRef = env.CHANGE_TARGET ? "origin/${env.CHANGE_TARGET}" : 'HEAD~1'
+          def baseCommit = sh(
+            script: "git merge-base HEAD ${targetRef} 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || true",
+            returnStdout: true
+          ).trim()
+
+          def changedFilesText = baseCommit
+            ? sh(script: "git diff --name-only ${baseCommit} HEAD", returnStdout: true).trim()
+            : sh(script: "git diff-tree --no-commit-id --name-only -r HEAD || true", returnStdout: true).trim()
+
+          def changedFiles = changedFilesText ? changedFilesText.split('\n') : []
+          def changedJava = [] as Set
+          def changedFrontend = [] as Set
+
+          changedFiles.each { file ->
+            def topFolder = file.tokenize('/')[0]
+
+            if (javaModules.contains(topFolder)) {
+              changedJava.add(topFolder)
+            }
+
+            if (frontendModules.containsKey(topFolder)) {
+              changedFrontend.add(frontendModules[topFolder])
+            }
+
+            if (
+              file == 'pom.xml' ||
+              file.startsWith('common-library/') ||
+              file.startsWith('checkstyle/') ||
+              file == 'Jenkinsfile.pr-ci'
+            ) {
+              javaModules.each { changedJava.add(it) }
+            }
+
+            if (file == 'package-lock.json' || file == 'package.json') {
+              frontendModules.values().each { changedFrontend.add(it) }
+            }
+          }
+
+          env.CHANGED_JAVA_MODULES = changedJava.join(',')
+          env.CHANGED_FRONTEND_MODULES = changedFrontend.join(',')
+
+          echo "Base commit: ${baseCommit ?: 'not found'}"
+          echo "Changed files:"
+          changedFiles.each { echo " - ${it}" }
+          echo "Changed Java modules: ${env.CHANGED_JAVA_MODULES ?: 'none'}"
+          echo "Changed frontend modules: ${env.CHANGED_FRONTEND_MODULES ?: 'none'}"
+        }
+      }
+    }
+
+    stage('Gitleaks Secret Scan') {
+      steps {
+        sh '''
+          rm -rf .gitleaks-scan
+          mkdir -p .gitleaks-scan
+
+          if [ -n "$BASE_COMMIT" ]; then
+            git diff --name-only --diff-filter=ACMRT "$BASE_COMMIT" HEAD > .gitleaks-files
+          else
+            git diff-tree --no-commit-id --name-only -r HEAD > .gitleaks-files
+          fi
+
+          if [ ! -s .gitleaks-files ]; then
+            echo "No changed files to scan with Gitleaks."
+            exit 0
+          fi
+
+          tar -cf - -T .gitleaks-files | tar -xf - -C .gitleaks-scan
+
+          docker run --rm \
+            -v "$PWD/.gitleaks-scan:/repo" \
+            -v "$PWD/gitleaks.toml:/gitleaks.toml:ro" \
+            zricethezav/gitleaks:latest detect \
+            --source=/repo \
+            --config=/gitleaks.toml \
+            --no-git \
+            --redact \
+            --verbose
+        '''
+      }
+    }
+
+    stage('Trivy Filesystem Scan') {
+      steps {
+        sh '''
+          rm -rf .trivy-scan
+          mkdir -p .trivy-scan
+
+          if [ -n "$CHANGED_JAVA_MODULES" ]; then
+            echo "$CHANGED_JAVA_MODULES" | tr ',' '\\n' | while read module_name; do
+              if [ -n "$module_name" ] && [ -d "$module_name" ]; then
+                mkdir -p ".trivy-scan/$module_name"
+                cp -R "$module_name/." ".trivy-scan/$module_name/"
+              fi
+            done
+
+            cp pom.xml .trivy-scan/
+            if [ -d common-library ]; then
+              mkdir -p .trivy-scan/common-library
+              cp -R common-library/. .trivy-scan/common-library/
+            fi
+          fi
+
+          if [ -n "$CHANGED_FRONTEND_MODULES" ]; then
+            echo "$CHANGED_FRONTEND_MODULES" | tr ',' '\\n' | while read module_name; do
+              if [ -n "$module_name" ] && [ -d "$module_name" ]; then
+                mkdir -p ".trivy-scan/$module_name"
+                cp -R "$module_name/package.json" "$module_name/package-lock.json" ".trivy-scan/$module_name/" 2>/dev/null || true
+              fi
+            done
+          fi
+
+          if [ -z "$(find .trivy-scan -type f -print -quit)" ]; then
+            echo "No changed Java or frontend modules to scan with Trivy."
+            exit 0
+          fi
+
+          docker run --rm \
+            -v "$PWD/.trivy-scan:/repo" \
+            aquasec/trivy:latest fs \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --scanners vuln \
+            /repo
+
+          docker run --rm \
+            -v "$PWD/.trivy-scan:/repo" \
+            aquasec/trivy:latest fs \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --scanners misconfig \
+            /repo
+        '''
+      }
+    }
+
+    stage('Java Unit Tests And Coverage') {
+      when {
+        expression { env.CHANGED_JAVA_MODULES?.trim() }
+      }
+      steps {
+        sh '''
+          mvn -B \
+            -pl "$CHANGED_JAVA_MODULES" \
+            -am \
+            clean test jacoco:report
+        '''
+      }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+          archiveArtifacts allowEmptyArchive: true, artifacts: '**/target/site/jacoco/**'
+        }
+      }
+    }
+
+    stage('Frontend Lint And Build') {
+      when {
+        expression { env.CHANGED_FRONTEND_MODULES?.trim() }
+      }
+      steps {
+        script {
+          env.CHANGED_FRONTEND_MODULES.split(',').each { moduleName ->
+            dir(moduleName) {
+              sh 'npm ci'
+              sh 'npm run lint --if-present'
+              sh 'npm run build'
+            }
+          }
+        }
+      }
+    }
+
+    stage('SonarCloud Analysis') {
+      when {
+        expression { env.RUN_SONAR == 'true' && env.CHANGED_JAVA_MODULES?.trim() }
+      }
+      steps {
+        withCredentials([string(credentialsId: env.SONARCLOUD_CREDENTIALS, variable: 'SONAR_TOKEN')]) {
+          sh '''
+            mvn -B \
+              -pl "$CHANGED_JAVA_MODULES" \
+              -am \
+              -DskipTests \
+              -Dsonar.token="$SONAR_TOKEN" \
+              sonar:sonar
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs deleteDirs: true, notFailBuild: true
+    }
+    success {
+      echo "PR CI passed. Java modules: ${env.CHANGED_JAVA_MODULES ?: 'none'}, frontend modules: ${env.CHANGED_FRONTEND_MODULES ?: 'none'}"
+    }
+    failure {
+      echo "PR CI failed. Check the failed stage above before merging."
+    }
+  }
+}

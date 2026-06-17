@@ -2,15 +2,9 @@ hostname: &hostname grafana.yas.local.com
 prometheus:
   prometheusSpec:
     enableRemoteWriteReceiver: true
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
 grafana:
-  grafana.ini:
-    database:
-      type: postgres
-      host: postgresql.postgres:5432
-      name: grafana
-      user: yasadminuser
-      password: admin
-      ssl_mode: require
   adminUser: admin
   adminPassword: admin
   ingress:

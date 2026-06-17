@@ -1,4 +1,4 @@
-# YAS: Yet Another Shop
+# YAS: Yet Another Shopp
 
 YAS is a pet project aim to practice building a typical microservice application in Java
 
